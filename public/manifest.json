@@ -1,0 +1,16 @@
+{
+  "name": "Cobweb Micropython IDE",
+  "short_name": "Coweb",
+  "description": "A simple IDE for micropython and the Raspberry Pico",
+  "icons": [
+    {
+      "sizes": "192x192",
+      "type": "image/png",
+      "src": "/images/manifest-192.png"
+    }
+  ],
+  "display": "standalone",
+  "start_url": "/",
+  "background_color": "#b0c4de",
+  "theme_color": "#789ac7"
+}
