@@ -51,3 +51,7 @@ resetButton.addEventListener('click', async() => {
 runButton.addEventListener('click', () => {
   replInterface.sendRaw(codeEditor.getContent());
 });
+
+window.addEventListener('load', () => {
+  navigator.serviceWorker.register('sw.js');
+});
