@@ -16,7 +16,9 @@
 
 import {ReplInterface} from './ReplInterface';
 import {CodeEditor} from './CodeEditor';
-import {ReplEditor} from './ReplEditor';
+import './components/SplitPane';
+import './components/ReplShell';
+import {ReplShell} from './components/ReplShell';
 
 const DEFAULT_DOC = `from machine import Pin, Timer
 led = Pin(25, Pin.OUT)
@@ -34,30 +36,43 @@ const disconnect = (document.querySelector('#disconnect') as HTMLButtonElement);
 const resetButton = (document.querySelector('#reset') as HTMLButtonElement);
 const runButton = (document.querySelector('#run') as HTMLButtonElement);
 const codeEditor = new CodeEditor(document.querySelector('#editor'), DEFAULT_DOC);
-const replEditor = new ReplEditor(document.querySelector('#repl'));
+const replShell = document.querySelector('#repl') as ReplShell;
+const statusText = document.querySelector('#status');
 
 disconnect.addEventListener('click', async () => {
   await replInterface.disconnect();
+  statusText.textContent = 'Disconnected';
   disconnect.disabled = true;
   connect.disabled = false;
   resetButton.disabled = true;
   runButton.disabled = true;
 });
 
+replShell.addEventListener('input', e => {
+  console.log(e);
+  const key = (e as CustomEvent).detail.key;
+  if (replInterface) {
+    replInterface.send(key);
+  }
+});
+
 connect.addEventListener('click', async () => {
-  replInterface = await ReplInterface.connect(115200, 8, 1);
-  replInterface.addEventListener('data', e => {
-    replEditor.append((e as CustomEvent).detail);
-  });
+  try {
+    replInterface = await ReplInterface.connect(115200, 8, 1);
+    replInterface.addEventListener('data', e => {
+      replShell.appendText((e as CustomEvent).detail);
+    });
 
-  replEditor.addEventListener('code', e => {
-    replInterface.send((e as CustomEvent).detail);
-  });
+    console.log('added listener :D ');
 
-  connect.disabled = true;
-  disconnect.disabled = false;
-  resetButton.disabled = false;
-  runButton.disabled = false;
+    connect.disabled = true;
+    disconnect.disabled = false;
+    resetButton.disabled = false;
+    runButton.disabled = false;
+    statusText.textContent = 'Connected';
+  } catch (e) {
+    statusText.textContent = `Failed to connect with error: ${e}`;
+  }
 });
 
 resetButton.addEventListener('click', async() => {

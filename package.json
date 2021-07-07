@@ -18,13 +18,16 @@
   "author": "",
   "license": "Apache-2.0",
   "dependencies": {
-    "@codemirror/basic-setup": "^0.17.1",
-    "@codemirror/lang-python": "^0.17.2",
-    "@codemirror/text": "^0.17.2",
-    "@codemirror/view": "^0.17.8",
+    "@codemirror/basic-setup": "^0.18.2",
+    "@codemirror/lang-python": "^0.18.0",
+    "@codemirror/text": "^0.18.0",
+    "@codemirror/view": "^0.18.17",
     "@rollup/plugin-commonjs": "^17.1.0",
     "@rollup/plugin-node-resolve": "^11.2.0",
-    "rollup-plugin-terser": "^7.0.2"
+    "lit": "*",
+    "rollup-plugin-terser": "^7.0.2",
+    "xterm": "^4.13.0",
+    "xterm-addon-fit": "^0.5.0"
   },
   "devDependencies": {
     "@rollup/plugin-typescript": "^8.2.0",

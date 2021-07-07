@@ -24,81 +24,164 @@
     <link rel="manifest" href="manifest.json">
     <link rel="shortcut" href="/images/manifest-192.png"> 
     <style>
-      html {
-        font-family: 'Roboto', sans-serif;
-        background-color: lightsteelblue;
+      /* Box sizing rules */
+      *,*::before,*::after {
         box-sizing: border-box;
       }
 
-      body {
+      /* Remove default margin */
+      body, h1, h2, h3, h4, p, figure, blockquote, dl, dd {
         margin: 0;
       }
 
-      h1 {
-        height: 56px;
-        margin: 0 0 16px 0;
-        padding: 8px 16px;
-        background-color: #789ac7;
-        box-sizing: border-box;
-        box-shadow: 0px 2px 4px #999999;
+      /* Remove list styles on ul, ol elements with a list role, which suggests default styling will be removed */
+      ul[role='list'],ol[role='list'] {
+        list-style: none;
       }
 
-      h2 {
-        margin: 16px 0 8px 0;
+      /* Set core root defaults */
+      html:focus-within {
+        scroll-behavior: smooth;
       }
 
-      #editor {
-        height: 60vh;
+      /* Set core body defaults */
+      body {
+        min-height: 100vh;
+        text-rendering: optimizeSpeed;
+        line-height: 1.5;
       }
 
-      #repl {
-        height: 16vh;
+      /* A elements that don't have a class get default styles */
+      a:not([class]) {
+        text-decoration-skip-ink: auto;
+      }
+
+      /* Make images easier to work with */
+      img, picture {
+        max-width: 100%;
+        display: block;
+      }
+
+      /* Inherit fonts for inputs and buttons */
+      input, button, textarea, select {
+        font: inherit;
+      }
+
+      /* Remove all animations, transitions and smooth scroll for people that prefer not to see them */
+      @media (prefers-reduced-motion: reduce) {
+        html:focus-within {
+        scroll-behavior: auto;
+        }
+        
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      /* End of CSS Reset / Code starts here */
+
+      html {
+        font-family: 'Roboto', sans-serif;
+        background-color: lightsteelblue;
+      }
+
+      body {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 58px calc(100vw - 58px);
+        grid-template-rows: 48px 48px calc(100vh - 120px) 24px;
+        overflow: hidden;
+      }
+
+      .header {
+        grid-column-start: 1;
+        grid-column-end: 3;
+        grid-row-start: 1;
+        grid-row-end: 1;
+      }
+
+      .top-toolbar {
+        grid-column-start: 1;
+        grid-column-end: 3;
+        grid-row-start: 2;
+        grid-row-end: 2;
+        overflow: hidden;
+      }
+
+      .left-toolbar {
+        grid-column-start: 1;
+        grid-column-end: 1;
+        grid-row-start: 3;
+        grid-row-end: 3;
+        overflow: hidden;
+      }
+
+      .bottom-toolbar {
+        grid-column-start: 1;
+        grid-column-end: 3;
+        grid-row-start: 4;
+        grid-row-end: 4;
+        overflow: hidden;
+        padding: 2px 4px;
+        font-size: 12px;
+      }
+
+      .center-panel {
+        width: 100%;
+        height: 100%;
+        grid-column-start: 2;
+        grid-column-end: 2;
+        grid-row-start: 3;
+        grid-row-end: 3;
       }
 
       .editor {
+        height: 100%;
+        margin: 0px 8px;
         font-family: 'Roboto Mono', monospace;
         background-color: #ffffff;
         overflow: auto;
-      }
-
-      .content-wrapper {
-        padding: 8px;
-      }
-
-      .buttons {
-        height: 30px;
-      }
-
-      .button {
-        width: 150px;
-        height: 30px;
-        text-transform: uppercase;
+        display: flex;
       }
 
       .hidden {
         display: none;
       }
+
+      .cm-editor {
+        width: 100%;
+      }
     </style>
   </head>
   <body>
-    <h1>Cobweb MicroPython IDE</h1>
-    <div class="content-wrapper">
+    <header class="header">
+      <h1>Cobweb MicroPython IDE</h1>
+    </header>
+    <div class="top-toolbar">
       <div class="buttons">
-        <button id="connect" class="button">Connect
-        </button>
+        <button id="connect" class="button">Connect</button>
         <button id="disconnect" disabled class="button">Disconnect</button>
         <button id="reset" disabled class="button">Reset</button>
         <button id="run" disabled class="button">Run</button>
       </div>
-      <div class="input">
-        <div>Editor:</div>
-        <div class="editor" id="editor">
-        </div>
-        <div>Shell:</div>
-        <div class="editor" id="repl">          
-        </code>
-      </div>
-  </div>
+    </div>
+    
+    <div class="left-toolbar">
+    </div>
+
+    <split-pane class="center-panel" orientation="vertical">
+      <div slot="start-pane" class="editor" id="editor"></div>
+      <repl-shell slot="end-pane" class="editor" id="repl"></repl-shell>
+    </split-pane>
+
+    <div class="bottom-toolbar">
+      <div id="status">Disconnected</div>
+    </div>
   </body>
   <script type="text/javascript" src="bundle.js" defer></script>
 </html>

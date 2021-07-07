@@ -33,7 +33,7 @@ export default {
 	plugins: [
 		typescript({lib: ['es5', 'es6', 'dom'], target: 'es2020'}),
 		resolve(), // tells Rollup how to find date-fns in node_modules
-		// commonjs(), // converts date-fns to ES modules
+		commonjs(), // converts date-fns to ES modules
 		production && terser() // minify, but only in production
 	]
 };

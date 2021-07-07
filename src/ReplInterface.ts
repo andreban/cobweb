@@ -14,11 +14,18 @@
  *  limitations under the License.
  */
 
+export type ReplMode = 'normal' | 'paste' | 'raw' | 'raw-paste';
+
+/**
+ * An implementation of the MicroPython REPL interface. Documentation for the interface itself
+ * is available at https://docs.micropython.org/en/latest/reference/repl.html.
+ */
 export class ReplInterface extends EventTarget {
   private writer: WritableStreamDefaultWriter<Uint8Array>;
   private reader: ReadableStreamDefaultReader<Uint8Array>;
   private encoder = new TextEncoder();
   private decoder = new TextDecoder();
+  private mode: ReplMode = 'normal';
 
   constructor(private port: SerialPort) {
     super();
@@ -31,10 +38,7 @@ export class ReplInterface extends EventTarget {
     while (true) {
       const {value, done} = await this.reader.read();
       if (value) {
-        const decoded = this.decoder.decode(value);
-        console.log('<<<: ', decoded);
-        this.dispatchEvent(
-          new CustomEvent('data', {detail: decoded}));
+        this.dispatchEvent(new CustomEvent('data', {detail: value}));
       }
       if (done) {
         this.reader.releaseLock();
@@ -66,7 +70,7 @@ export class ReplInterface extends EventTarget {
 
   async send(content: string) {
     console.log('>>>: ', content);
-    await this.writer.write(this.encoder.encode(content + '\r\n'));      
+    await this.writer.write(this.encoder.encode(content));      
   }
 
   async sendRaw(content: string) {
