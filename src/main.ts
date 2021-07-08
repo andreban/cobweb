@@ -18,6 +18,7 @@ import {ReplInterface} from './ReplInterface';
 import {CodeEditor} from './CodeEditor';
 import './components/SplitPane';
 import './components/ReplShell';
+import './components/FileNavigator';
 import {ReplShell} from './components/ReplShell';
 
 const DEFAULT_DOC = `from machine import Pin, Timer

@@ -142,7 +142,6 @@
 
       .editor {
         height: 100%;
-        margin: 0px 8px;
         font-family: 'Roboto Mono', monospace;
         background-color: #ffffff;
         overflow: auto;
@@ -174,8 +173,11 @@
     <div class="left-toolbar">
     </div>
 
-    <split-pane class="center-panel" orientation="vertical">
-      <div slot="start-pane" class="editor" id="editor"></div>
+    <split-pane class="center-panel" orientation="vertical" startPaneInitialSize="66">
+      <split-pane slot="start-pane" orientation="horizontal" startPaneInitialSize="20">
+        <file-navigator slot="start-pane"></file-navigator>
+        <div slot="end-pane" class="editor" id="editor"></div>
+      </split-pane>
       <repl-shell slot="end-pane" class="editor" id="repl"></repl-shell>
     </split-pane>
 

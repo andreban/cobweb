@@ -24,6 +24,8 @@
     "@codemirror/view": "^0.18.17",
     "@rollup/plugin-commonjs": "^17.1.0",
     "@rollup/plugin-node-resolve": "^11.2.0",
+    "@types/w3c-web-serial": "^1.0.2",
+    "@types/wicg-file-system-access": "^2020.9.2",
     "lit": "*",
     "rollup-plugin-terser": "^7.0.2",
     "xterm": "^4.13.0",
