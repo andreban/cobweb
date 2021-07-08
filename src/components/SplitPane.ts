@@ -62,20 +62,28 @@ export class SplitPane extends LitElement {
 
   orientation: string;
   dragStart: number;
-  startInitialSize: number;
-  endInitialSize: number;
+  startPaneInitialSize: number;
 
   constructor() {
     super();
     this.orientation = 'vertical'
+    this.startPaneInitialSize = 50;
   }
 
   firstUpdated() {
     const divider = this.renderRoot.querySelector('#divider') as HTMLElement;
     const start = this.renderRoot.querySelector('#start-pane') as HTMLElement;
     const end = this.renderRoot.querySelector('#end-pane') as HTMLElement;
-    let md;
 
+    if (this.orientation === 'vertical') {
+      start.style.height = `${this.startPaneInitialSize}%`
+      end.style.height = `${100 - this.startPaneInitialSize}%`
+    } else {
+      start.style.width = `${this.startPaneInitialSize}%`
+      end.style.width = `${100 - this.startPaneInitialSize}%`
+    }
+
+    let md;
     const mouseDown = (e) => {
       md = {e,
         offsetLeft: divider.offsetLeft,
@@ -136,6 +144,7 @@ export class SplitPane extends LitElement {
   static get properties() {
     return {
       orientation: {type: String},
+      startPaneInitialSize: {type: Number},
     };
   }
 }
