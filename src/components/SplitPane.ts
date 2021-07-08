@@ -77,7 +77,14 @@ export class SplitPane extends LitElement {
     let md;
 
     const mouseDown = (e) => {
-      md = {e,
+      let touchDetails;
+      if (e instanceof TouchEvent) {
+        touchDetails = e.changedTouches[0];
+      } else {
+        touchDetails = e;
+      }
+
+      md = {touchDetails,
         offsetLeft: divider.offsetLeft,
         offsetTop: divider.offsetTop,
         firstWidth: start.offsetWidth,
@@ -87,12 +94,24 @@ export class SplitPane extends LitElement {
        };
       document.addEventListener('mousemove', mouseMove);
       document.addEventListener('mouseup', mouseUp);
+      document.addEventListener('touchmove', mouseMove);
+      document.addEventListener('touchend', mouseUp);
     };
 
     const mouseMove = (e) => {
+      let clientX;
+      let clientY;
+      if (e instanceof TouchEvent) {
+        clientX = e.changedTouches[0].clientX;
+        clientY = e.changedTouches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
       const delta = {
-        x: e.clientX - md.e.clientX,
-        y: e.clientY - md.e.clientY,
+        x: clientX - md.touchDetails.clientX,
+        y: clientY - md.touchDetails.clientY,
       };
 
       if (this.orientation === 'horizontal') {
@@ -115,9 +134,12 @@ export class SplitPane extends LitElement {
     const mouseUp = () => {
       document.removeEventListener('mousemove', mouseMove);
       document.removeEventListener('mouseup', mouseUp);
+      document.removeEventListener('touchmove', mouseMove);
+      document.removeEventListener('touchend', mouseUp);
     }
 
     divider.addEventListener('mousedown', mouseDown);
+    divider.addEventListener('touchstart', mouseDown);
   }
   
   render() {

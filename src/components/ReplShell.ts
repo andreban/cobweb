@@ -173,7 +173,6 @@ export class ReplShell extends LitElement {
     });
 
     const resizeObserver = new ResizeObserver(() => {
-      console.log('resized');
       fitAddon.fit();
     });
     resizeObserver.observe(editor);
