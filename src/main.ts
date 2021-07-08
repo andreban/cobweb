@@ -19,6 +19,7 @@ import {CodeEditor} from './CodeEditor';
 import './components/SplitPane';
 import './components/ReplShell';
 import './components/FileNavigator';
+import {FileNavigator} from './components/FileNavigator';
 import {ReplShell} from './components/ReplShell';
 
 const DEFAULT_DOC = `from machine import Pin, Timer
@@ -38,6 +39,7 @@ const resetButton = (document.querySelector('#reset') as HTMLButtonElement);
 const runButton = (document.querySelector('#run') as HTMLButtonElement);
 const codeEditor = new CodeEditor(document.querySelector('#editor'), DEFAULT_DOC);
 const replShell = document.querySelector('#repl') as ReplShell;
+const fileNavigator = document.querySelector('#filenavigator') as FileNavigator;
 const statusText = document.querySelector('#status');
 
 disconnect.addEventListener('click', async () => {
@@ -86,4 +88,9 @@ runButton.addEventListener('click', () => {
 
 window.addEventListener('load', () => {
   navigator.serviceWorker.register('sw.js');
+});
+
+fileNavigator.addEventListener('fileopened', (e) => {
+  const evt = (e as CustomEvent);
+  codeEditor.setContent(evt.detail.content);
 });

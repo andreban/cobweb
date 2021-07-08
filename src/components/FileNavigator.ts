@@ -28,7 +28,7 @@ export class FileNavigator extends LitElement {
   `;
 
   private directoryHandle?: FileSystemDirectoryHandle;
-  private fileHandles?: Map<string, FileSystemHandle>;
+  private fileHandles?: Map<string, FileSystemFileHandle>;
 
   private selectDirectoryClickHandler = async() => {
     this.fileHandles = new Map();
@@ -36,7 +36,6 @@ export class FileNavigator extends LitElement {
     const entries = this.directoryHandle.entries();
     let entry = await entries.next();
     while (!entry.done) {
-      console.log(entry.value[0]);
       this.fileHandles.set(entry.value[0], entry.value[1]);
       entry = await entries.next();
     }
@@ -45,7 +44,9 @@ export class FileNavigator extends LitElement {
 
   private fileSelectedClickHandler = async (e) => {
     const fileHandle = this.fileHandles.get(e.target.getAttribute('key'));
-    console.log(fileHandle);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    this.dispatchEvent(new CustomEvent('fileopened', {detail: {name: fileHandle.name, content: content}}))
   };
 
   firstUpdated() {

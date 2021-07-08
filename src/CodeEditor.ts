@@ -24,6 +24,12 @@ export class CodeEditor {
     this.cm = this.createCodeMirror(parent, initialContent);
   }
 
+  public setContent(content: string) {
+    this.cm.dispatch({
+      changes: {from: 0, to: this.cm.state.doc.length, insert: content},
+    });
+  }
+
   public getContent(): string {
     return this.cm.state.doc.sliceString(0, this.cm.state.doc.length);
   }
