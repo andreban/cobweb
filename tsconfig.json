@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "experimentalDecorators": true
+    "jsx": "react-jsx",
+    "strict": true,
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler"
   }
 }
 
