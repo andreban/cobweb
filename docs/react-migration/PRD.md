@@ -13,6 +13,7 @@ This migration is also the right moment to introduce an AI coding assistant and 
 3. **AI coding assistant** — Integrate a mast-ai `AgentRunner` that can read and write the editor, run code in the REPL, and converse with the user in a dedicated chat panel backed by `@mast-ai/react-ui`.
 4. **Configurable provider** — The user supplies an API key and selects a provider (initially Google Gemini) via a settings UI. The architecture must make adding future providers straightforward without further restructuring.
 5. **Editor upgrade** — Replace the current pre-stable `@codemirror/*@0.18.x` packages with a modern editor (see SPEC for decision).
+6. **Dark/light mode** — The app respects the OS colour-scheme preference by default. The user can override it via a toggle in the toolbar. The chosen preference is persisted to `localStorage`.
 
 ## Out of Scope
 
@@ -30,3 +31,4 @@ This migration is also the right moment to introduce an AI coding assistant and 
 - When no provider is configured the chat panel is disabled but visible, and prompts the user to open settings.
 - No Lit dependency remains in `package.json`.
 - All React components are purely presentational — no component imports `ReplInterface` or `AgentRunner` directly.
+- The app defaults to the OS colour-scheme preference. A toolbar toggle lets the user switch between light and dark mode, and the choice is persisted across reloads.

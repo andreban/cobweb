@@ -265,6 +265,19 @@ Creates the CodeMirror `EditorView` in a `useEffect` attached to `editorRef`. St
 
 See Provider Abstraction section above.
 
+### `useTheme()`
+
+```ts
+{
+  theme: 'light' | 'dark',
+  toggle(): void,
+}
+```
+
+On mount, reads `localStorage` key `cobweb:theme`. If absent, reads `window.matchMedia('(prefers-color-scheme: dark)')`. Applies/removes the `dark` class on `<html>` whenever `theme` changes. `toggle()` flips the value and persists it to `localStorage`.
+
+Used by `<Toolbar>` to render a sun/moon icon button. No other component needs to import it — `<html class="dark">` is all shadcn/ui requires.
+
 ### Agent state — `useAgent()` from `@mast-ai/react-ui`
 
 Agent streaming state is **not** a custom hook — it is provided by `useAgent()` from `@mast-ai/react-ui`, available to any component inside `<AgentProvider>`. No `useAgent` hook is implemented in this project.
@@ -295,7 +308,7 @@ Divider position in `useState`; pointer events on the divider handle dragging.
 
 ### `<Toolbar>`
 
-Props: `connectionState`, `onConnect`, `onDisconnect`, `onReset`, `onRun`, `onOpenSettings`, `isAgentConfigured: boolean`.
+Props: `connectionState`, `onConnect`, `onDisconnect`, `onReset`, `onRun`, `onOpenSettings`, `isAgentConfigured: boolean`, `theme: 'light' | 'dark'`, `onToggleTheme: () => void`.
 
 ### `<StatusBar>`
 
@@ -403,6 +416,7 @@ Replace the current `<body>` content with a single mount point:
 - `src/hooks/useReplConnection.ts`
 - `src/hooks/useEditor.ts`
 - `src/hooks/useProviderConfig.ts`
+- `src/hooks/useTheme.ts`
 - `src/agent/tools/ReadEditorTool.ts`
 - `src/agent/tools/WriteEditorTool.ts`
 - `src/agent/tools/RunCodeTool.ts`
