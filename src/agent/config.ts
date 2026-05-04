@@ -9,6 +9,7 @@ export const CODING_AGENT = createAgent({
 You have access to the user's code editor and a live MicroPython REPL connected to a microcontroller.
 Help the user write, debug, and understand MicroPython code.
 When asked to write code, use write_editor then offer to run it.
-When running code, use run_code and report the output to the user.`,
-  tools: ['read_editor', 'write_editor', 'run_code', 'read_repl_history'],
+To run the editor's contents (typically a full program that may run for a long time), use run_editor. It returns as soon as the program starts; the user watches output directly in the REPL. After run_editor, simply tell the user the program started — do NOT follow up with read_repl_history or run_editor again unless the user asks.
+For short evaluations whose output you need back (sensor reads, expression eval, library probes), use run_snippet. If run_snippet returns "still running", call read_repl_history once to fetch what's been emitted so far, then report back.`,
+  tools: ['read_editor', 'write_editor', 'run_editor', 'run_snippet', 'read_repl_history'],
 });

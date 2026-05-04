@@ -155,10 +155,15 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void;
 - Args: `{ code: string }`
 - Calls `bindings.setEditorContent(code)`.
 
-### `RunCodeTool`
+### `RunEditorTool`
 - scope: `'write'`, `requiresApproval: true`
-- Args: `{ code?: string }` — if omitted, runs the current editor content.
-- Sends code to the REPL via `bindings.runCode`, which now parses the raw-REPL response and resolves with `{stdout, stderr}`. The tool formats those into a single string for the agent (labels stderr when present), instead of relying on idle/max output timers.
+- Args: `{}` — runs the current editor content.
+- Sends the editor content to the REPL via `bindings.runCode`. Editor programs are typically full apps (event loops, sensor polls) that may run indefinitely, so the tool waits only briefly (~100 ms) for fast startup errors (e.g. "Not connected"). If the program completes inside that window, it returns the stdout/stderr like a snippet would; otherwise it returns a "started" message and detaches the run promise so the agent can move on. The "started" message and the agent instructions both explicitly tell the agent NOT to follow up with `read_repl_history` — the user watches output directly in the REPL. Without that guidance the model otherwise loops on history fetches, treating the streaming program as if it were a snippet awaiting a final result.
+
+### `RunSnippetTool`
+- scope: `'write'`, `requiresApproval: true`
+- Args: `{ code: string }` — required.
+- Sends `code` to the REPL via `bindings.runCode` and waits up to ~25 s (sits below `ReplInterface.sendRaw`'s 30 s default so we surface "still running" before the underlying call times out). Returns formatted stdout/stderr on completion. On timeout, returns a "still running" message and detaches the run promise; the agent can then poll output via `ReadReplHistoryTool`.
 
 ### `ReadReplHistoryTool`
 - scope: `'read'`
@@ -178,8 +183,9 @@ export const CODING_AGENT = createAgent({
 You have access to the user's code editor and a live MicroPython REPL connected to a microcontroller.
 Help the user write, debug, and understand MicroPython code.
 When asked to write code, use write_editor then offer to run it.
-When running code, use run_code and report the output to the user.`,
-  tools: ['read_editor', 'write_editor', 'run_code', 'read_repl_history'],
+To run the editor's contents (typically a full program that may run for a long time), use run_editor. It returns as soon as the program starts; the user watches output directly in the REPL. After run_editor, simply tell the user the program started — do NOT follow up with read_repl_history or run_editor again unless the user asks.
+For short evaluations whose output you need back (sensor reads, expression eval, library probes), use run_snippet. If run_snippet returns "still running", call read_repl_history once to fetch what's been emitted so far, then report back.`,
+  tools: ['read_editor', 'write_editor', 'run_editor', 'run_snippet', 'read_repl_history'],
 });
 ```
 
@@ -199,7 +205,9 @@ import '@mast-ai/react-ui/styles.css';
 <AgentProvider
   runner={runner}
   agent={CODING_AGENT}
-  onApprovalRequired={async (call) => call.name === 'run_code' ? INLINE_APPROVAL : true}
+  onApprovalRequired={async (call) =>
+    call.name === 'run_editor' || call.name === 'run_snippet' ? INLINE_APPROVAL : true
+  }
   onConversationChange={(history, entries) => {
     localStorage.setItem('cobweb:conversation', JSON.stringify({ history, entries }));
   }}
@@ -211,7 +219,7 @@ import '@mast-ai/react-ui/styles.css';
 ```
 
 - `runner` comes from `useMemo` in `<App>`. When `null`, `AgentProvider` renders with `ChatInput` disabled — the user sees the panel but cannot send messages.
-- `RunCodeTool` uses `INLINE_APPROVAL` so the user confirms before code runs on the device. Other tools (read/write editor) execute silently.
+- `RunEditorTool` and `RunSnippetTool` use `INLINE_APPROVAL` so the user confirms before code runs on the device. Other tools (read/write editor) execute silently.
 - `onConversationChange` persists conversation history to `localStorage` after each completed turn, so the conversation survives page reloads.
 - `useAgent().isReady` can be read by `<Toolbar>` to show a "configure agent" prompt when no provider is set.
 
@@ -441,7 +449,8 @@ Replace the current `<body>` content with a single mount point:
 - `src/hooks/useTheme.ts`
 - `src/agent/tools/ReadEditorTool.ts`
 - `src/agent/tools/WriteEditorTool.ts`
-- `src/agent/tools/RunCodeTool.ts`
+- `src/agent/tools/RunEditorTool.ts`
+- `src/agent/tools/RunSnippetTool.ts`
 - `src/agent/tools/ReadReplHistoryTool.ts`
 - `src/agent/config.ts` — `CODING_AGENT` config constant
 - `src/components/Toolbar.tsx`

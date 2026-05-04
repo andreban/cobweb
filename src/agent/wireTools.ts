@@ -5,7 +5,8 @@ import type { ToolRegistry } from '@mast-ai/core';
 import type { RunResult } from '../ReplInterface';
 import { ReadEditorTool } from './tools/ReadEditorTool';
 import { WriteEditorTool } from './tools/WriteEditorTool';
-import { RunCodeTool } from './tools/RunCodeTool';
+import { RunEditorTool } from './tools/RunEditorTool';
+import { RunSnippetTool } from './tools/RunSnippetTool';
 import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
 
 export interface ToolBindings {
@@ -32,6 +33,7 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
 
   tools.register(new ReadEditorTool(get));
   tools.register(new WriteEditorTool(get));
-  tools.register(new RunCodeTool(get));
+  tools.register(new RunEditorTool(get));
+  tools.register(new RunSnippetTool(get));
   tools.register(new ReadReplHistoryTool(get));
 }
