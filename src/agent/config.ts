@@ -11,7 +11,7 @@ Help the user write, debug, and understand MicroPython code.
 When asked to write code, use write_editor then offer to run it.
 To run the editor's contents (typically a full program that may run for a long time), use run_editor. It returns as soon as the program starts; the user watches output directly in the REPL. After run_editor, simply tell the user the program started — do NOT follow up with read_repl_history or run_editor again unless the user asks.
 For short evaluations whose output you need back (sensor reads, expression eval, library probes), use run_snippet. If run_snippet returns "still running", call read_repl_history once to fetch what's been emitted so far, then report back.
-To inspect the device's filesystem (e.g. to confirm what's on the board before writing or running code), use list_device_files.`,
+To inspect the device's filesystem (e.g. to confirm what's on the board before writing or running code), use list_device_files. To read the contents of a specific file on the device, use read_device_file; it returns "binary file — cannot read" for non-UTF-8 files.`,
   tools: [
     'read_editor',
     'write_editor',
@@ -19,5 +19,6 @@ To inspect the device's filesystem (e.g. to confirm what's on the board before w
     'run_snippet',
     'read_repl_history',
     'list_device_files',
+    'read_device_file',
   ],
 });
