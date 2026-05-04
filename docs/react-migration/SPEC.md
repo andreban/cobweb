@@ -111,17 +111,17 @@ Instantiated once at app startup:
 
 ```ts
 export interface AppModels {
-  repl: ReplInterface;
   tools: ToolRegistry;
 }
 
 export function createModels(): AppModels {
   return {
-    repl: new ReplInterface(),
-    tools: new ToolRegistry(),   // agent tools registered here
+    tools: new ToolRegistry(),
   };
 }
 ```
+
+`repl` is not in `AppModels` — `ReplInterface` can only be constructed after the user picks a serial port, so `useReplConnection` owns its lifecycle entirely (calling `ReplInterface.connect()` internally).
 
 `AgentRunner` is not in `AppModels` — it is owned by `useProviderConfig` and recreated when the provider config changes.
 
@@ -235,7 +235,9 @@ No Model or hook imports. A "Settings" button in `<Toolbar>` opens it.
 
 ## ViewModels (hooks)
 
-### `useReplConnection(repl: ReplInterface)`
+### `useReplConnection()`
+
+Owns the `ReplInterface` lifecycle. `connect()` calls `ReplInterface.connect()` to acquire a serial port and create the instance; `disconnect()` tears it down.
 
 ```ts
 {
