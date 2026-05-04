@@ -4,15 +4,27 @@
 const RAW_BANNER = 'raw REPL; CTRL-B to exit\r\n>';
 const OK = 'OK';
 const EOT = 0x04;
+const PASTE_REQUEST = Uint8Array.from([0x05, 0x41, 0x01]); // Ctrl-E, 'A', Ctrl-A
 
 export interface RunResult {
   stdout: string;
   stderr: string;
 }
 
-interface ResponseParser {
+type HandshakeResult =
+  | {mode: 'plain'}
+  | {mode: 'paste'; windowIncrement: number; initialRemaining: number};
+
+type FlowControl = 'window' | 'abort';
+
+interface ResponseExchange {
   feed(chunk: Uint8Array): void;
   abort(reason: unknown): void;
+  awaitBanner(): Promise<void>;
+  awaitHandshake(): Promise<HandshakeResult>;
+  awaitFlowControl(): Promise<FlowControl>;
+  endOfData(): void;
+  awaitResult(): Promise<RunResult>;
 }
 
 /**
@@ -28,10 +40,10 @@ export class ReplInterface extends EventTarget {
   // next begins, preventing one caller's prologue from interleaving with
   // another's body in the underlying WritableStream queue.
   private writeChain: Promise<void> = Promise.resolve();
-  // Active raw-REPL response parser. The read loop hands every incoming chunk
-  // to it (in addition to dispatching the `'data'` event). At most one parser
+  // Active raw-REPL response exchange. The read loop hands every incoming
+  // chunk to it (in addition to dispatching the `'data'` event). At most one
   // is active because `sendRaw` runs under the write-serialization mutex.
-  private parser: ResponseParser | null = null;
+  private exchange: ResponseExchange | null = null;
 
   constructor(private port: SerialPort) {
     super();
@@ -65,7 +77,7 @@ export class ReplInterface extends EventTarget {
         const {value, done} = await this.reader.read();
         if (value) {
           this.dispatchEvent(new CustomEvent('data', {detail: value}));
-          this.parser?.feed(value);
+          this.exchange?.feed(value);
         }
         if (done) {
           break;
@@ -83,7 +95,7 @@ export class ReplInterface extends EventTarget {
     // If a sendRaw was waiting for a response, surface the disconnect to it
     // before firing the public event so callers see a real rejection instead
     // of hanging until their timeout.
-    this.parser?.abort(error ?? new Error('disconnected'));
+    this.exchange?.abort(error ?? new Error('disconnected'));
     this.dispatchEvent(
       new CustomEvent('disconnect', error ? {detail: {error}} : undefined),
     );
@@ -119,36 +131,52 @@ export class ReplInterface extends EventTarget {
 
   /**
    * Runs `content` in the device's raw REPL and returns its captured stdout
-   * and stderr. The raw protocol (per the MicroPython docs) is:
+   * and stderr. The protocol (per the MicroPython docs) is:
    *
-   *   1. Ctrl-A  → device emits `\r\nraw REPL; CTRL-B to exit\r\n>`.
-   *   2. code + Ctrl-D → device emits `OK`, then stdout, `\x04`, stderr, `\x04`, `>`.
+   *   1. Ctrl-A → device emits `\r\nraw REPL; CTRL-B to exit\r\n>`.
+   *   2. `\x05A\x01` (raw-paste request) → device responds:
+   *        - `R\x00`: not supported, fall back to plain raw mode.
+   *        - `R\x01<lo><hi>`: supported; the next two bytes are the window
+   *          size increment (LE u16). Stream code respecting the window;
+   *          honour `\x01` (window+) and `\x04` (abort) flow-control bytes.
+   *   3. Send `\x04` end-of-data; device responds with `\x04` (raw-paste
+   *      ack) or `OK` (plain mode), then stdout, `\x04`, stderr, `\x04`, `>`.
    *
    * Bytes are still dispatched via the `'data'` event so xterm mirrors the
    * full conversation; the parser only inspects them.
    *
-   * Rejects if `timeoutMs` elapses before both `\x04` framing bytes arrive,
-   * or if the connection drops mid-flight.
+   * Rejects if `timeoutMs` elapses before the response completes, or if
+   * the connection drops mid-flight. The `Ctrl-B` epilogue is sent
+   * best-effort either way so the device leaves raw mode.
    */
   sendRaw(content: string, timeoutMs = 30_000): Promise<RunResult> {
     return this.runExclusive(async () => {
-      const response = this.captureResponse(timeoutMs);
+      const exchange = this.captureResponse(timeoutMs);
       try {
         await this.writer.write(Uint8Array.from([0x03, 0x03]));
         await this.writer.write(Uint8Array.from([0x01]));
-        for (const line of content.split('\n')) {
-          await this.writer.write(this.encoder.encode(line + '\r'));
+        await exchange.awaitBanner();
+
+        await this.writer.write(PASTE_REQUEST);
+        const handshake = await exchange.awaitHandshake();
+
+        if (handshake.mode === 'paste') {
+          await this.streamPaste(content, handshake, exchange);
+        } else {
+          for (const line of content.split('\n')) {
+            await this.writer.write(this.encoder.encode(line + '\r'));
+          }
+          await this.writer.write(Uint8Array.from([EOT]));
         }
-        await this.writer.write(Uint8Array.from([0x04]));
       } catch (err) {
-        // A write failed — bail out the parser so it doesn't sit waiting for
-        // a response that will never come. We still await `response.promise`
+        // A write failed — bail out the exchange so it doesn't sit waiting
+        // for a response that will never come. We still await the result
         // below so the rejection is observed (otherwise it surfaces as an
         // unhandled promise rejection).
-        response.abort(err);
+        exchange.abort(err);
       }
       try {
-        return await response.promise;
+        return await exchange.awaitResult();
       } finally {
         // Best-effort exit raw mode. If the writer is already errored (e.g.
         // device disconnected mid-run) we don't want that to mask the real
@@ -163,57 +191,150 @@ export class ReplInterface extends EventTarget {
   }
 
   /**
-   * Installs a parser into `this.parser` and returns its promise plus an
-   * `abort` hook for write-side failures. The parser walks the four phases
-   * of the raw-REPL response (banner → OK → stdout → stderr) and resolves
-   * after the second `\x04`.
+   * Streams `content` to the device under raw-paste flow control. Each chunk
+   * is at most `windowRemaining` bytes; when the window hits zero we wait
+   * for the device to either send `\x01` (refill) or `\x04` (abort). On
+   * abort we stop immediately but still send end-of-data so the device
+   * leaves paste mode cleanly — its stderr will carry the failure reason.
    */
-  private captureResponse(
-    timeoutMs: number,
-  ): {promise: Promise<RunResult>; abort: (reason: unknown) => void} {
-    let resolveResult!: (r: RunResult) => void;
-    let rejectResult!: (e: unknown) => void;
-    const promise = new Promise<RunResult>((res, rej) => {
-      resolveResult = res;
-      rejectResult = rej;
-    });
+  private async streamPaste(
+    content: string,
+    handshake: {mode: 'paste'; windowIncrement: number; initialRemaining: number},
+    exchange: ResponseExchange,
+  ): Promise<void> {
+    const bytes = this.encoder.encode(content);
+    let offset = 0;
+    let windowRemaining = handshake.initialRemaining;
 
-    const decoder = new TextDecoder();
-    type Phase = 'banner' | 'ok' | 'stdout' | 'stderr' | 'done';
+    while (offset < bytes.length) {
+      if (windowRemaining === 0) {
+        const fc = await exchange.awaitFlowControl();
+        if (fc === 'abort') {
+          // Stop sending immediately. We still send end-of-data below so
+          // the device leaves paste mode cleanly; its stderr will carry
+          // the abort reason (e.g. a MemoryError).
+          break;
+        }
+        windowRemaining += handshake.windowIncrement;
+        continue;
+      }
+      const chunkSize = Math.min(windowRemaining, bytes.length - offset);
+      // slice (copy) instead of subarray so the WritableStream sink owns
+      // an independent buffer.
+      const chunk = bytes.slice(offset, offset + chunkSize);
+      await this.writer.write(chunk);
+      offset += chunkSize;
+      windowRemaining -= chunkSize;
+    }
+
+    // Tell the parser the next \x04 is the end-of-data ack, not a flow-
+    // control abort. Ordering matters: we set this *before* the write so
+    // a fast device can't race ahead of us.
+    exchange.endOfData();
+    await this.writer.write(Uint8Array.from([EOT]));
+  }
+
+  /**
+   * Installs a parser into `this.exchange` and returns its promises plus an
+   * `abort` hook for write-side failures. The parser walks the raw-REPL
+   * response phases (banner → handshake → [paste streaming | plain OK] →
+   * stdout → `\x04` → stderr → `\x04`) and resolves after the second `\x04`.
+   */
+  private captureResponse(timeoutMs: number): ResponseExchange {
+    type Phase =
+      | 'banner'
+      | 'r-byte'
+      | 'r-status'
+      | 'paste-window-lo'
+      | 'paste-window-hi'
+      | 'paste-streaming'
+      | 'plain-ok'
+      | 'stdout'
+      | 'stderr'
+      | 'done';
+
     let phase: Phase = 'banner';
     // Rolling text scratch for the banner and OK phases. Bounded to a few
     // multiples of the longest needle so a chatty device leftover from a
     // prior program can't grow the buffer without limit.
     let scratch = '';
+    let pasteWindowLo = 0;
+    let windowIncrement = 0;
+    // Once the SUT has written end-of-data Ctrl-D, the next `\x04` from the
+    // device is the raw-paste ack — not a flow-control abort. We toggle this
+    // flag in `endOfData()` so the parser disambiguates the two.
+    let expectingPasteAck = false;
     const stdoutBytes: number[] = [];
     const stderrBytes: number[] = [];
 
+    let resolveBanner!: () => void;
+    let rejectBanner!: (e: unknown) => void;
+    const bannerPromise = new Promise<void>((res, rej) => {
+      resolveBanner = res;
+      rejectBanner = rej;
+    });
+    bannerPromise.catch(() => {/* observed if anyone awaits it */});
+
+    let resolveHandshake!: (h: HandshakeResult) => void;
+    let rejectHandshake!: (e: unknown) => void;
+    const handshakePromise = new Promise<HandshakeResult>((res, rej) => {
+      resolveHandshake = res;
+      rejectHandshake = rej;
+    });
+    handshakePromise.catch(() => {});
+
+    let resolveResult!: (r: RunResult) => void;
+    let rejectResult!: (e: unknown) => void;
+    const resultPromise = new Promise<RunResult>((res, rej) => {
+      resolveResult = res;
+      rejectResult = rej;
+    });
+
+    const flowControlQueue: FlowControl[] = [];
+    const flowControlWaiters: Array<{
+      resolve: (v: FlowControl) => void;
+      reject: (e: unknown) => void;
+    }> = [];
+
+    const decoder = new TextDecoder();
+    const SCRATCH_CAP = Math.max(RAW_BANNER.length, OK.length) * 4;
+
+    const cleanup = () => {
+      phase = 'done';
+      this.exchange = null;
+      clearTimeout(timer);
+    };
+
+    const fail = (reason: unknown) => {
+      if (phase === 'done') return;
+      cleanup();
+      rejectBanner(reason);
+      rejectHandshake(reason);
+      rejectResult(reason);
+      for (const w of flowControlWaiters) w.reject(reason);
+      flowControlWaiters.length = 0;
+    };
+
     const finish = () => {
       if (phase === 'done') return;
-      phase = 'done';
-      this.parser = null;
-      clearTimeout(timer);
+      cleanup();
       resolveResult({
         stdout: decoder.decode(Uint8Array.from(stdoutBytes)),
         stderr: decoder.decode(Uint8Array.from(stderrBytes)),
       });
     };
 
-    const fail = (reason: unknown) => {
-      if (phase === 'done') return;
-      phase = 'done';
-      this.parser = null;
-      clearTimeout(timer);
-      rejectResult(reason);
-    };
-
     const timer = setTimeout(() => {
       fail(new Error('Timed out waiting for raw REPL response'));
     }, timeoutMs);
 
-    const SCRATCH_CAP = Math.max(RAW_BANNER.length, OK.length) * 4;
+    const pushFlowControl = (v: FlowControl) => {
+      const w = flowControlWaiters.shift();
+      if (w) w.resolve(v);
+      else flowControlQueue.push(v);
+    };
 
-    const parser: ResponseParser = {
+    const exchange: ResponseExchange = {
       feed: (chunk) => {
         for (let i = 0; i < chunk.length; i++) {
           const b = chunk[i];
@@ -223,10 +344,64 @@ export class ReplInterface extends EventTarget {
               scratch = scratch.slice(-RAW_BANNER.length);
             }
             if (scratch.endsWith(RAW_BANNER)) {
-              phase = 'ok';
+              phase = 'r-byte';
               scratch = '';
+              resolveBanner();
             }
-          } else if (phase === 'ok') {
+          } else if (phase === 'r-byte') {
+            if (b === 0x52) { // 'R'
+              phase = 'r-status';
+            } else {
+              fail(
+                new Error(
+                  `Unexpected byte 0x${b.toString(16).padStart(2, '0')} ` +
+                    `(expected 'R' for raw-paste handshake)`,
+                ),
+              );
+              return;
+            }
+          } else if (phase === 'r-status') {
+            if (b === 0x00) {
+              phase = 'plain-ok';
+              resolveHandshake({mode: 'plain'});
+            } else if (b === 0x01) {
+              phase = 'paste-window-lo';
+            } else {
+              fail(
+                new Error(
+                  `Unexpected raw-paste status 0x${b.toString(16).padStart(2, '0')}`,
+                ),
+              );
+              return;
+            }
+          } else if (phase === 'paste-window-lo') {
+            pasteWindowLo = b;
+            phase = 'paste-window-hi';
+          } else if (phase === 'paste-window-hi') {
+            windowIncrement = pasteWindowLo | (b << 8);
+            phase = 'paste-streaming';
+            resolveHandshake({
+              mode: 'paste',
+              windowIncrement,
+              initialRemaining: windowIncrement,
+            });
+          } else if (phase === 'paste-streaming') {
+            if (expectingPasteAck) {
+              if (b === EOT) {
+                phase = 'stdout';
+                expectingPasteAck = false;
+              }
+              // Any stray flow-control \x01 that arrived after we set
+              // end-of-data is harmless — discard it.
+            } else {
+              if (b === 0x01) {
+                pushFlowControl('window');
+              } else if (b === EOT) {
+                pushFlowControl('abort');
+              }
+              // Other bytes are not part of the paste protocol; ignore.
+            }
+          } else if (phase === 'plain-ok') {
             scratch += String.fromCharCode(b);
             if (scratch.endsWith(OK)) {
               phase = 'stdout';
@@ -250,10 +425,33 @@ export class ReplInterface extends EventTarget {
         }
       },
       abort: (reason) => fail(reason),
+      awaitBanner: () => bannerPromise,
+      awaitHandshake: () => handshakePromise,
+      awaitFlowControl: () => {
+        if (flowControlQueue.length > 0) {
+          return Promise.resolve(flowControlQueue.shift()!);
+        }
+        return new Promise((resolve, reject) => {
+          flowControlWaiters.push({resolve, reject});
+        });
+      },
+      endOfData: () => {
+        // Only meaningful while we're streaming. Late callers are no-ops.
+        if (phase === 'paste-streaming') {
+          expectingPasteAck = true;
+          // Resolve any waiters with 'abort' so the streaming loop can
+          // exit cleanly if the SUT had been blocked on flow control. In
+          // practice this list is empty when endOfData runs (the SUT only
+          // calls it after the streaming loop returns).
+          for (const w of flowControlWaiters) w.resolve('abort');
+          flowControlWaiters.length = 0;
+        }
+      },
+      awaitResult: () => resultPromise,
     };
 
-    this.parser = parser;
-    return {promise, abort: parser.abort};
+    this.exchange = exchange;
+    return exchange;
   }
 
   static async connect(
