@@ -1,11 +1,13 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-type Resolver<T> = (value?: T) => void;
+/** Callback used to fulfill a pending {@link AsyncBlockingQueue.dequeue} promise. */
+type Resolver<T> = (value: T) => void;
 
+/** Internal singly-linked node used by {@link Queue}. */
 class QueueEntry<T> {
   data: T;
-  next?: QueueEntry<T>
+  next?: QueueEntry<T>;
 
   constructor(data: T) {
     this.data = data;
@@ -13,16 +15,13 @@ class QueueEntry<T> {
 }
 
 /**
- * A linked queue implementation.
+ * A FIFO queue backed by a singly-linked list. Both `enqueue` and `dequeue` run in O(1).
  */
 export class Queue<T> {
-  head?: QueueEntry<T>;
-  tail?: QueueEntry<T>;
+  private head?: QueueEntry<T>;
+  private tail?: QueueEntry<T>;
 
-  /**
-   * Adds an item to the queue.
-   * @param data
-   */
+  /** Appends an item to the back of the queue. */
   enqueue(data: T): void {
     const newNode = new QueueEntry<T>(data);
     if (this.tail) {
@@ -30,16 +29,14 @@ export class Queue<T> {
     }
     this.tail = newNode;
 
-    // Queue is empty. Initialise the head.
     if (!this.head) {
       this.head = this.tail;
     }
   }
 
   /**
-   * Removes an item from the queue and returns it.
-   * @returns {T} the removed item.
-   * @throws an error if the list is empty.
+   * Removes and returns the item at the front of the queue.
+   * @throws Error if the queue is empty — callers should guard with {@link isEmpty}.
    */
   dequeue(): T {
     if (this.isEmpty()) {
@@ -47,29 +44,32 @@ export class Queue<T> {
     }
     const node = this.head!.data;
     this.head = this.head!.next;
+    if (!this.head) {
+      this.tail = undefined;
+    }
     return node;
   }
 
-  /**
-   * Checks if the Queues is empty
-   * @returns {boolean} true if the Queue is empty.
-   */
+  /** Returns `true` when the queue contains no items. */
   isEmpty(): boolean {
     return this.head == null;
   }
 }
 
 /**
- * The AsyncBlockingQueue implements a queue with an asynchronous programming model. Items can
- * be added to the Queue as usual. When dequeing, a Promise is returned.
+ * A FIFO queue with an asynchronous consumer side: {@link dequeue} returns a `Promise` that
+ * resolves with the next available item, or stays pending until one is enqueued. Producers
+ * never block.
  *
- * The promise will resolve instantly if the Queue is not empty. If the Queue is empty, the Promise
- * will be resolved when a new item is added to the queue.
+ * Internally the queue maintains two sub-queues such that exactly one of them is non-empty at
+ * any time: `promiseQueue` holds buffered (already-resolved) values waiting to be consumed,
+ * and `resolverQueue` holds resolvers for promises that have been handed out to consumers.
  */
 export class AsyncBlockingQueue<T> {
   private promiseQueue: Queue<Promise<T>> = new Queue<Promise<T>>();
   private resolverQueue: Queue<Resolver<T>> = new Queue<Resolver<T>>();
 
+  /** Creates a paired promise + resolver, appending each to its respective queue. */
   private add(): void {
     const promise = new Promise<T>(resolve => {
       this.resolverQueue.enqueue(resolve);
@@ -78,8 +78,8 @@ export class AsyncBlockingQueue<T> {
   }
 
   /**
-   * Enqueues an item
-   * @param data
+   * Adds an item to the queue. If a consumer is already waiting, its pending promise is
+   * resolved with `data`; otherwise the value is buffered for the next `dequeue` call.
    */
   enqueue(data: T): void {
     if (this.resolverQueue.isEmpty()) {
@@ -90,22 +90,24 @@ export class AsyncBlockingQueue<T> {
   }
 
   /**
-   * Asynchronously dequeues an item. If the queue is empty, the returned Promise is resolved when
-   * an item is added. Otherwise, it will return one o the existing items.
-   * @returns {Promise<T>} that resolves to the data.
+   * Returns a `Promise` for the next item. Resolves immediately if a value is already
+   * buffered; otherwise resolves when an item is enqueued. Items are delivered in FIFO
+   * order across both producers and consumers.
    */
-  async dequeue(): Promise<T> {
+  dequeue(): Promise<T> {
     if (this.promiseQueue.isEmpty()) {
       this.add();
     }
     return this.promiseQueue.dequeue();
   }
 
-  hasPendingPromises(): boolean {
+  /** Returns `true` when items have been enqueued and are waiting for a consumer. */
+  hasBufferedValues(): boolean {
     return !this.promiseQueue.isEmpty();
   }
 
-  hasPendingResolvers(): boolean {
+  /** Returns `true` when consumers are waiting for items to be enqueued. */
+  hasWaitingConsumers(): boolean {
     return !this.resolverQueue.isEmpty();
   }
 }
