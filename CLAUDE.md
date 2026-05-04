@@ -65,6 +65,52 @@ Before starting work on a feature, check its subdirectory in `docs/` for context
 - Implementation details (key decisions, non-obvious choices, patterns introduced) belong in the PR description, not in issue comments. When starting work on an issue with dependencies, read the PRs that closed those issues for implementation context.
 - Always include `Closes #N` in the PR description so GitHub auto-closes the issue on merge.
 
+### Native GitHub Relationships (required for every new issue)
+
+After creating an issue, always set its native GitHub relationships via the GraphQL API. Text-only "Depends on #N" in the body is not enough.
+
+**Step 1 — Get node IDs** for all issues involved:
+```bash
+gh api graphql -f query='{
+  repository(owner: "andreban", name: "cobweb") {
+    a: issue(number: PARENT) { id }
+    b: issue(number: NEW_ISSUE) { id }
+    c: issue(number: BLOCKER) { id }
+  }
+}'
+```
+
+**Step 2 — Set parent** (new issue is a sub-issue of the epic):
+```bash
+gh api graphql -f query='mutation {
+  addSubIssue(input: { issueId: "PARENT_NODE_ID", subIssueId: "NEW_ISSUE_NODE_ID" }) {
+    issue { number }
+  }
+}'
+```
+
+**Step 3 — Set blocked-by** (repeat for each blocker):
+```bash
+gh api graphql -f query='mutation {
+  addBlockedBy(input: { issueId: "NEW_ISSUE_NODE_ID", blockingIssueId: "BLOCKER_NODE_ID" }) {
+    issue { number }
+  }
+}'
+```
+
+**To verify** relationships are set:
+```bash
+gh api graphql -f query='{
+  repository(owner: "andreban", name: "cobweb") {
+    issue(number: N) {
+      parent { number }
+      blockedBy(first: 10) { nodes { number } }
+      blocking(first: 10) { nodes { number } }
+    }
+  }
+}'
+```
+
 ## Git Conventions
 
 - Always use `Edit` to modify existing files — never rewrite them wholesale with `Write`. Small diffs make reviews easier.
