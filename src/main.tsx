@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import '@mast-ai/react-ui/styles.css';
@@ -10,13 +10,14 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ReplShell } from './components/ReplShell';
 import { CodeEditor } from './components/CodeEditor';
+import { FileNavigator } from './components/FileNavigator';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor } from './hooks/useEditor';
 
 function App() {
   const { connectionState, connect, disconnect, reset, runCode, send, onData } =
     useReplConnection();
-  const { editorRef, getContent } = useEditor();
+  const { editorRef, getContent, setContent } = useEditor();
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftSize, setLeftSize] = useState(20);
@@ -27,6 +28,19 @@ function App() {
   const [replOpen, setReplOpen] = useState(true);
   const [replSize, setReplSize] = useState(40);
 
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('cobweb:theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('cobweb:theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
       <Toolbar
@@ -35,8 +49,10 @@ function App() {
         onDisconnect={disconnect}
         onReset={reset}
         onRun={() => runCode(getContent())}
-        onOpenWorkspace={() => {}}
         onOpenSettings={() => {}}
+        isAgentConfigured={false}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
       <div style={{ flex: 1, overflow: 'hidden' }}>
         <SplitPane
@@ -47,7 +63,7 @@ function App() {
           collapsed={!leftOpen}
         >
           {[
-            <div key="files" style={{ padding: 8, background: '#f3f4f6', height: '100%' }}>FileNavigator</div>,
+            <FileNavigator key="files" onFileSelected={setContent} />,
             <SplitPane
               key="main"
               orientation="horizontal"
@@ -77,6 +93,8 @@ function App() {
         </SplitPane>
       </div>
       <StatusBar
+        connectionState={connectionState}
+        isAgentConfigured={false}
         leftOpen={leftOpen}
         replOpen={replOpen}
         rightOpen={rightOpen}

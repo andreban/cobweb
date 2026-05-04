@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { FolderOpen, Play, Plug, RotateCcw, Settings, Unplug } from 'lucide-react';
+import { Moon, Play, Plug, RotateCcw, Settings, Sun, Unplug } from 'lucide-react';
 
 type ConnectionState = 'disconnected' | 'connected';
 
@@ -11,8 +11,10 @@ interface ToolbarProps {
   onDisconnect: () => void;
   onReset: () => void;
   onRun: () => void;
-  onOpenWorkspace: () => void;
   onOpenSettings: () => void;
+  isAgentConfigured: boolean;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
 export function Toolbar({
@@ -21,8 +23,9 @@ export function Toolbar({
   onDisconnect,
   onReset,
   onRun,
-  onOpenWorkspace,
   onOpenSettings,
+  theme,
+  onToggleTheme,
 }: ToolbarProps) {
   const connected = connectionState === 'connected';
 
@@ -31,15 +34,6 @@ export function Toolbar({
       <span className="text-sm font-semibold mr-2">Cobweb</span>
 
       <div className="flex items-center gap-1">
-        <button
-          onClick={onOpenWorkspace}
-          title="Open workspace"
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors"
-        >
-          <FolderOpen size={14} />
-          Open
-        </button>
-
         {connected ? (
           <button
             onClick={onDisconnect}
@@ -82,6 +76,14 @@ export function Toolbar({
       </div>
 
       <div className="flex-1" />
+
+      <button
+        onClick={onToggleTheme}
+        title="Toggle theme"
+        className="p-1.5 rounded hover:bg-accent transition-colors"
+      >
+        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+      </button>
 
       <button
         onClick={onOpenSettings}
