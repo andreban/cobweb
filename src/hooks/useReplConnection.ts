@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useRef, useState } from 'react';
-import { ReplInterface, type RunResult } from '../ReplInterface';
+import { ReplDisconnectedError, ReplInterface, type RunResult } from '../ReplInterface';
 
 const MAX_HISTORY_LINES = 100;
 
@@ -66,7 +66,14 @@ export function useReplConnection() {
         repl.removeEventListener('disconnect', disconnectListenerRef.current);
         disconnectListenerRef.current = null;
       }
-      await repl.disconnect();
+      try {
+        await repl.disconnect();
+      } catch (err) {
+        // The interface already tolerates errored streams; this catch is a
+        // belt-and-braces guard so a stray rejection can't bubble up to the
+        // user's click handler as an unhandled promise rejection.
+        if (!(err instanceof ReplDisconnectedError)) throw err;
+      }
       replRef.current = null;
     }
     setConnectionState('disconnected');
@@ -74,7 +81,13 @@ export function useReplConnection() {
 
   const reset = useCallback(async () => {
     if (replRef.current) {
-      await replRef.current.reset();
+      try {
+        await replRef.current.reset();
+      } catch (err) {
+        // Post-disconnect clicks short-circuit silently. The disconnect
+        // event has already (or will) update connectionState to match.
+        if (!(err instanceof ReplDisconnectedError)) throw err;
+      }
     }
   }, []);
 
@@ -87,7 +100,11 @@ export function useReplConnection() {
 
   const send = useCallback(async (data: string) => {
     if (replRef.current) {
-      await replRef.current.send(data);
+      try {
+        await replRef.current.send(data);
+      } catch (err) {
+        if (!(err instanceof ReplDisconnectedError)) throw err;
+      }
     }
   }, []);
 

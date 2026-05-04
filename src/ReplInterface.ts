@@ -11,6 +11,20 @@ export interface RunResult {
   stderr: string;
 }
 
+/**
+ * Thrown by `reset`, `send`, and `sendRaw` when the device-side connection
+ * has dropped — either because the user called `disconnect`, the read loop
+ * ended (cable unplug, USB error, OS-level serial failure), or a write to
+ * the serial port failed mid-call. The original underlying error (if any)
+ * is preserved on `cause`.
+ */
+export class ReplDisconnectedError extends Error {
+  constructor(message = 'REPL is disconnected', options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ReplDisconnectedError';
+  }
+}
+
 type HandshakeResult =
   | {mode: 'plain'}
   | {mode: 'paste'; windowIncrement: number; initialRemaining: number};
@@ -44,6 +58,11 @@ export class ReplInterface extends EventTarget {
   // chunk to it (in addition to dispatching the `'data'` event). At most one
   // is active because `sendRaw` runs under the write-serialization mutex.
   private exchange: ResponseExchange | null = null;
+  // Flipped to `true` when the connection is no longer usable: read loop
+  // ended (any reason), `disconnect()` was called, or a write rejected.
+  // Public write methods short-circuit on this so callers see a typed
+  // `ReplDisconnectedError` instead of a raw stream error.
+  private disconnected = false;
 
   constructor(private port: SerialPort) {
     super();
@@ -52,6 +71,7 @@ export class ReplInterface extends EventTarget {
     // Safety net: readLoop already catches its own errors, but if anything
     // ever escapes, surface it instead of leaving an unhandled rejection.
     this.readLoop().catch((error) => {
+      this.disconnected = true;
       this.dispatchEvent(new CustomEvent('disconnect', {detail: {error}}));
     });
   }
@@ -86,6 +106,7 @@ export class ReplInterface extends EventTarget {
     } catch (err) {
       error = err;
     } finally {
+      this.disconnected = true;
       try {
         this.reader.releaseLock();
       } catch {
@@ -93,39 +114,88 @@ export class ReplInterface extends EventTarget {
       }
     }
     // If a sendRaw was waiting for a response, surface the disconnect to it
-    // before firing the public event so callers see a real rejection instead
-    // of hanging until their timeout.
-    this.exchange?.abort(error ?? new Error('disconnected'));
+    // before firing the public event so callers see a typed rejection
+    // instead of hanging until their timeout.
+    this.exchange?.abort(
+      new ReplDisconnectedError(
+        'REPL disconnected',
+        error ? {cause: error} : undefined,
+      ),
+    );
     this.dispatchEvent(
       new CustomEvent('disconnect', error ? {detail: {error}} : undefined),
     );
   }
 
   async disconnect() {
-    await this.writer.close();
-    await this.reader.cancel();
-    await this.port.close();
+    this.disconnected = true;
+    // Tolerate streams that are already errored (e.g. device-lost mid-session
+    // surfaced as `TypeError: Cannot close a ERRORED writable stream`). On
+    // failure, release the writer's lock so `port.close()` isn't blocked.
+    try {
+      await this.writer.close();
+    } catch {
+      try {
+        this.writer.releaseLock();
+      } catch {
+        // Already released.
+      }
+    }
+    // The read loop's `finally` releases the reader lock, after which
+    // `cancel()` rejects with a TypeError. Tolerate it either way.
+    try {
+      await this.reader.cancel();
+    } catch {
+      // Reader already released, cancelled, or errored.
+    }
+    try {
+      await this.port.close();
+    } catch {
+      // Port may already be closed.
+    }
   }
 
   reset() {
+    if (this.disconnected) {
+      return Promise.reject(new ReplDisconnectedError());
+    }
     return this.runExclusive(async () => {
-      // ctrl-C twice: interrupt any running program
-      await this.writer.write(Uint8Array.from([0x03, 0x03]));
+      if (this.disconnected) throw new ReplDisconnectedError();
+      try {
+        // ctrl-C twice: interrupt any running program
+        await this.writer.write(Uint8Array.from([0x03, 0x03]));
 
-      // Ctrl-A: enter raw REPL
-      await this.writer.write(Uint8Array.from([0x01]));
+        // Ctrl-A: enter raw REPL
+        await this.writer.write(Uint8Array.from([0x01]));
 
-      //  ctrl-D: soft reset
-      await this.writer.write(Uint8Array.from([0x04]));
+        //  ctrl-D: soft reset
+        await this.writer.write(Uint8Array.from([0x04]));
 
-      // ctrl+B: exit raw REPL
-      await this.writer.write(Uint8Array.from([0x02]));
+        // ctrl+B: exit raw REPL
+        await this.writer.write(Uint8Array.from([0x02]));
+      } catch (err) {
+        this.disconnected = true;
+        throw new ReplDisconnectedError('REPL disconnected during reset', {
+          cause: err,
+        });
+      }
     });
   }
 
   send(content: string) {
+    if (this.disconnected) {
+      return Promise.reject(new ReplDisconnectedError());
+    }
     return this.runExclusive(async () => {
-      await this.writer.write(this.encoder.encode(content));
+      if (this.disconnected) throw new ReplDisconnectedError();
+      try {
+        await this.writer.write(this.encoder.encode(content));
+      } catch (err) {
+        this.disconnected = true;
+        throw new ReplDisconnectedError('REPL disconnected during send', {
+          cause: err,
+        });
+      }
     });
   }
 
@@ -150,7 +220,11 @@ export class ReplInterface extends EventTarget {
    * best-effort either way so the device leaves raw mode.
    */
   sendRaw(content: string, timeoutMs = 30_000): Promise<RunResult> {
+    if (this.disconnected) {
+      return Promise.reject(new ReplDisconnectedError());
+    }
     return this.runExclusive(async () => {
+      if (this.disconnected) throw new ReplDisconnectedError();
       const exchange = this.captureResponse(timeoutMs);
       try {
         await this.writer.write(Uint8Array.from([0x03, 0x03]));
@@ -172,8 +246,17 @@ export class ReplInterface extends EventTarget {
         // A write failed — bail out the exchange so it doesn't sit waiting
         // for a response that will never come. We still await the result
         // below so the rejection is observed (otherwise it surfaces as an
-        // unhandled promise rejection).
-        exchange.abort(err);
+        // unhandled promise rejection). Wrap the underlying error so callers
+        // see a predictable, identifiable type rather than e.g. a raw
+        // `UnknownError` from the Web Serial stack.
+        this.disconnected = true;
+        const wrapped =
+          err instanceof ReplDisconnectedError
+            ? err
+            : new ReplDisconnectedError('REPL disconnected during sendRaw', {
+                cause: err,
+              });
+        exchange.abort(wrapped);
       }
       try {
         return await exchange.awaitResult();

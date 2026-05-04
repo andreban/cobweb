@@ -80,7 +80,12 @@ export function App() {
           onConnect={connect}
           onDisconnect={disconnect}
           onReset={reset}
-          onRun={() => runCode(getContent())}
+          onRun={() => {
+            // Click handler is `() => void`; without a `.catch` a rejection
+            // (timeout, mid-run disconnect, …) would become an unhandled
+            // promise rejection.
+            runCode(getContent()).catch((err) => console.error('Run failed:', err));
+          }}
           onOpenSettings={() => setIsSettingsOpen(true)}
           isAgentConfigured={config !== null}
           themePreference={themePreference}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ReplInterface } from './ReplInterface';
+import { ReplDisconnectedError, ReplInterface } from './ReplInterface';
 
 /**
  * In-memory stand-in for a Web Serial port. Captures every chunk the SUT writes
@@ -322,12 +322,85 @@ describe('ReplInterface', () => {
       expect(port.writableClosed).toBe(true);
     });
 
-    it('rejects an in-flight sendRaw when the read loop ends', async () => {
+    it('rejects an in-flight sendRaw with ReplDisconnectedError when the read loop ends', async () => {
       const failure = new Error('device disconnected');
       const sendPromise = repl.sendRaw('print(1)');
       // Bytes start arriving but the response never completes (no \x04 pair).
       port.errorReadable(failure);
-      await expect(sendPromise).rejects.toBe(failure);
+      const err = await sendPromise.catch((e) => e);
+      expect(err).toBeInstanceOf(ReplDisconnectedError);
+      expect((err as Error).cause).toBe(failure);
+    });
+  });
+
+  describe('after device-lost', () => {
+    // Once the read loop ends, every public write method must reject with a
+    // typed ReplDisconnectedError instead of letting a raw stream error
+    // (UnknownError, NetworkError, TypeError on closed stream, …) escape.
+    const waitForDisconnect = (r: ReplInterface) =>
+      new Promise<void>((resolve) => {
+        r.addEventListener('disconnect', () => resolve(), {once: true});
+      });
+
+    it('reset() rejects with ReplDisconnectedError after the read loop ends', async () => {
+      const seen = waitForDisconnect(repl);
+      port.errorReadable(new Error('cable yanked'));
+      await seen;
+      await expect(repl.reset()).rejects.toBeInstanceOf(ReplDisconnectedError);
+    });
+
+    it('send() rejects with ReplDisconnectedError after the read loop ends', async () => {
+      const seen = waitForDisconnect(repl);
+      port.errorReadable(new Error('cable yanked'));
+      await seen;
+      await expect(repl.send('x')).rejects.toBeInstanceOf(ReplDisconnectedError);
+    });
+
+    it('sendRaw() rejects with ReplDisconnectedError after the read loop ends', async () => {
+      const seen = waitForDisconnect(repl);
+      port.errorReadable(new Error('cable yanked'));
+      await seen;
+      await expect(repl.sendRaw('x')).rejects.toBeInstanceOf(ReplDisconnectedError);
+    });
+
+    it('disconnect() resolves cleanly when the writable stream has errored', async () => {
+      // First, error the writer by failing a write. After this every
+      // subsequent operation on the writer (including close()) rejects.
+      port.shouldRejectWrite = () => new Error('device gone');
+      await expect(repl.send('x')).rejects.toBeInstanceOf(ReplDisconnectedError);
+      // disconnect() must still resolve — it has to tolerate an errored
+      // writer instead of letting a `Cannot close a ERRORED writable stream`
+      // TypeError escape.
+      await expect(repl.disconnect()).resolves.toBeUndefined();
+    });
+
+    it('reset() preserves the underlying write failure as `cause`', async () => {
+      const failure = new Error('cable yanked');
+      port.shouldRejectWrite = () => failure;
+      const err = await repl.reset().catch((e) => e);
+      expect(err).toBeInstanceOf(ReplDisconnectedError);
+      expect((err as Error).cause).toBe(failure);
+    });
+
+    it('does not leak unhandled rejections from any write method', async () => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const seen = waitForDisconnect(repl);
+        port.errorReadable(new Error('cable yanked'));
+        await seen;
+        await Promise.all([
+          repl.reset().catch(() => undefined),
+          repl.send('x').catch(() => undefined),
+          repl.sendRaw('y').catch(() => undefined),
+          repl.disconnect().catch(() => undefined),
+        ]);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
     });
   });
 
@@ -525,11 +598,13 @@ describe('ReplInterface', () => {
 
       const failed = repl.sendRaw('a');
       const next = repl.sendRaw('b');
-      await expect(failed).rejects.toBe(failure);
-      // `next` must still run — a failed task shouldn't poison the chain. But
-      // the writable stream itself errors on the rejected write, so this call
-      // rejects too; what matters is that it actually attempts to run.
-      await expect(next).rejects.toBeDefined();
+      const failedErr = await failed.catch((e) => e);
+      expect(failedErr).toBeInstanceOf(ReplDisconnectedError);
+      expect((failedErr as Error).cause).toBe(failure);
+      // `next` must still be reached — a failed task shouldn't poison the
+      // chain. With the connection now considered disconnected it short-
+      // circuits with `ReplDisconnectedError` rather than attempting a write.
+      await expect(next).rejects.toBeInstanceOf(ReplDisconnectedError);
     });
 
     it('rejects when a line write fails mid-payload, with no unhandled rejections', async () => {
@@ -547,7 +622,9 @@ describe('ReplInterface', () => {
       const onUnhandled = (reason: unknown) => unhandled.push(reason);
       process.on('unhandledRejection', onUnhandled);
       try {
-        await expect(repl.sendRaw('a\nb\nc')).rejects.toBe(failure);
+        const err = await repl.sendRaw('a\nb\nc').catch((e) => e);
+        expect(err).toBeInstanceOf(ReplDisconnectedError);
+        expect((err as Error).cause).toBe(failure);
         await new Promise((r) => setTimeout(r, 0));
         expect(unhandled).toEqual([]);
       } finally {
