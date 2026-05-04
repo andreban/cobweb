@@ -98,36 +98,102 @@ const concat = (chunks: Uint8Array[]): Uint8Array => {
   return out;
 };
 
-/**
- * A minimal canned raw-REPL response: banner, OK, the supplied stdout/stderr,
- * the two `\x04` framing bytes, and the trailing `>`.
- */
-const okResponse = (stdout = '', stderr = ''): Uint8Array =>
-  concat([
-    encode('\r\nraw REPL; CTRL-B to exit\r\n>OK'),
-    encode(stdout),
-    bytes(0x04),
-    encode(stderr),
-    bytes(0x04),
-    encode('>'),
-  ]);
+const BANNER = encode('\r\nraw REPL; CTRL-B to exit\r\n>');
+const isCtrlA = (chunk: Uint8Array) => chunk.length === 1 && chunk[0] === 0x01;
+const isCtrlD = (chunk: Uint8Array) => chunk.length === 1 && chunk[0] === 0x04;
+const isPasteRequest = (chunk: Uint8Array) =>
+  chunk.length === 3 && chunk[0] === 0x05 && chunk[1] === 0x41 && chunk[2] === 0x01;
 
 /**
- * Auto-respond to any `sendRaw` issued during the test: when the SUT writes
- * Ctrl-D (the last protocol write before it begins waiting), inject the
- * canned response. Returns an unsubscribe so tests that need finer control
- * can disable the auto-reply.
+ * Drives the FakeSerialPort to behave like a device that does NOT support
+ * raw-paste mode: emits the banner after Ctrl-A, replies `R\x00` to the
+ * paste-request, then `OK` + stdout + `\x04` + stderr + `\x04` + `>` after
+ * the SUT's end-of-data Ctrl-D.
  */
-const autoRespond = (port: FakeSerialPort, response: Uint8Array = okResponse()): (() => void) => {
+const respondPlain = (
+  port: FakeSerialPort,
+  options: {stdout?: string; stderr?: string} = {},
+): (() => void) => {
+  const stdout = options.stdout ?? '';
+  const stderr = options.stderr ?? '';
   const previous = port.onWrite;
   port.onWrite = (chunk, index) => {
     previous?.(chunk, index);
-    if (chunk.length === 1 && chunk[0] === 0x04) {
-      port.inject(response);
+    if (isCtrlA(chunk)) {
+      port.inject(BANNER);
+    } else if (isPasteRequest(chunk)) {
+      port.inject(bytes(0x52, 0x00));
+    } else if (isCtrlD(chunk)) {
+      port.inject(
+        concat([
+          encode('OK'),
+          encode(stdout),
+          bytes(0x04),
+          encode(stderr),
+          bytes(0x04),
+          encode('>'),
+        ]),
+      );
     }
   };
   return () => {
     port.onWrite = previous;
+  };
+};
+
+/**
+ * Drives the FakeSerialPort to behave like a device that DOES support
+ * raw-paste mode: emits the banner after Ctrl-A, replies `R\x01` + window
+ * (LE u16) to the paste-request, sends `\x01` once for every `windowSize`
+ * bytes streamed in, and finally `\x04` (paste ack) + stdout + `\x04` +
+ * stderr + `\x04` + `>` after the SUT's end-of-data Ctrl-D.
+ */
+const respondPaste = (
+  port: FakeSerialPort,
+  options: {windowSize?: number; stdout?: string; stderr?: string} = {},
+): (() => void) => {
+  const windowSize = options.windowSize ?? 128;
+  const stdout = options.stdout ?? '';
+  const stderr = options.stderr ?? '';
+
+  let inStreaming = false;
+  let bytesConsumed = 0;
+
+  const previous = port.onWrite;
+  port.onWrite = (chunk, index) => {
+    previous?.(chunk, index);
+    if (isCtrlA(chunk)) {
+      port.inject(BANNER);
+    } else if (isPasteRequest(chunk)) {
+      port.inject(bytes(0x52, 0x01, windowSize & 0xff, (windowSize >> 8) & 0xff));
+      inStreaming = true;
+    } else if (inStreaming && isCtrlD(chunk)) {
+      // Single-byte 0x04 chunk after handshake is the SUT's end-of-data.
+      // (Source code that legitimately contains 0x04 would arrive in a
+      // multi-byte data chunk, which the branch below handles.)
+      inStreaming = false;
+      port.inject(
+        concat([
+          bytes(0x04),
+          encode(stdout),
+          bytes(0x04),
+          encode(stderr),
+          bytes(0x04),
+          encode('>'),
+        ]),
+      );
+    } else if (inStreaming) {
+      bytesConsumed += chunk.length;
+      while (bytesConsumed >= windowSize) {
+        port.inject(bytes(0x01));
+        bytesConsumed -= windowSize;
+      }
+    }
+  };
+  return () => {
+    port.onWrite = previous;
+    inStreaming = false;
+    bytesConsumed = 0;
   };
 };
 
@@ -288,89 +354,165 @@ describe('ReplInterface', () => {
     });
   });
 
-  describe('sendRaw — protocol writes', () => {
-    it('opens with Ctrl-C twice and Ctrl-A', async () => {
-      autoRespond(port);
+  describe('sendRaw — handshake', () => {
+    it('opens with Ctrl-C twice, Ctrl-A, then the raw-paste request \\x05A\\x01', async () => {
+      respondPlain(port);
       await repl.sendRaw('print(1)');
       expect(port.written[0]).toEqual(bytes(0x03, 0x03));
       expect(port.written[1]).toEqual(bytes(0x01));
+      expect(port.written[2]).toEqual(bytes(0x05, 0x41, 0x01));
     });
 
+    it('does not send the paste request until the banner has arrived', async () => {
+      // Inject the banner in two pieces, separated by a microtask, then
+      // assert the SUT held off on the paste request until both pieces
+      // arrived. We never finish the rest of the protocol — the test
+      // tears down via timeout.
+      let pasteRequestIndex = -1;
+      port.onWrite = (chunk, index) => {
+        if (isCtrlA(chunk)) {
+          // First half of the banner only; SUT must still be waiting.
+          port.inject(BANNER.slice(0, 8));
+        }
+        if (isPasteRequest(chunk)) {
+          pasteRequestIndex = index;
+        }
+      };
+      const send = repl.sendRaw('x', 50).catch(() => undefined);
+      // Let the SUT consume the partial banner.
+      await new Promise((r) => setTimeout(r, 5));
+      expect(pasteRequestIndex).toBe(-1);
+      // Now finish the banner.
+      port.inject(BANNER.slice(8));
+      await new Promise((r) => setTimeout(r, 5));
+      expect(pasteRequestIndex).toBeGreaterThan(0);
+      await send;
+    });
+
+    it('falls back to plain raw mode when the device replies R\\x00', async () => {
+      respondPlain(port);
+      await repl.sendRaw('print(1)');
+      // After the paste request (chunks[2]) we expect <line>\\r writes —
+      // the plain-mode path. In paste mode there would be no \\r insertion.
+      const body = port.written.slice(3, -2);
+      expect(body).toEqual([encode('print(1)\r')]);
+    });
+
+    it('uses raw-paste mode when the device replies R\\x01 with a window', async () => {
+      respondPaste(port, {windowSize: 128});
+      await repl.sendRaw('print(1)');
+      // Paste mode writes the source bytes verbatim, no \\r insertion.
+      const body = port.written.slice(3, -2);
+      expect(body).toEqual([encode('print(1)')]);
+    });
+
+    it('reads the window size as a little-endian u16', async () => {
+      // windowSize = 0x0140 = 320; lo=0x40, hi=0x01.
+      // Force at least one window refill by sending more than 320 bytes.
+      const content = 'x'.repeat(500);
+      respondPaste(port, {windowSize: 320});
+      await repl.sendRaw(content);
+      const body = port.written.slice(3, -2);
+      // First chunk should be exactly 320 bytes (the initial window).
+      expect(body[0]).toHaveLength(320);
+      // Total bytes streamed must equal content length.
+      const totalBytes = body.reduce((n, c) => n + c.length, 0);
+      expect(totalBytes).toBe(500);
+    });
+
+    it('rejects when the handshake response is malformed', async () => {
+      port.onWrite = (chunk) => {
+        if (isCtrlA(chunk)) {
+          port.inject(BANNER);
+        } else if (isPasteRequest(chunk)) {
+          // Garbage where 'R' was expected.
+          port.inject(bytes(0x58, 0x00));
+        }
+      };
+      await expect(repl.sendRaw('x')).rejects.toThrow(/raw-paste handshake/);
+    });
+  });
+
+  describe('sendRaw — protocol writes', () => {
     it('terminates with Ctrl-D then Ctrl-B', async () => {
-      autoRespond(port);
+      respondPlain(port);
       await repl.sendRaw('print(1)');
       const last = port.written.length - 1;
       expect(port.written[last - 1]).toEqual(bytes(0x04));
       expect(port.written[last]).toEqual(bytes(0x02));
     });
 
-    it('writes a single-line payload as `<line>\\r`', async () => {
-      autoRespond(port);
-      await repl.sendRaw('print(1)');
-      const body = port.written.slice(2, -2);
-      expect(body).toEqual([encode('print(1)\r')]);
-    });
-
-    it('writes each line of a multi-line payload in order, CR-terminated, before Ctrl-D', async () => {
-      autoRespond(port);
+    it('plain raw fallback writes each line of a multi-line payload CR-terminated, in order', async () => {
+      respondPlain(port);
       await repl.sendRaw('a\nb\nc');
-      const body = port.written.slice(2, -2);
+      const body = port.written.slice(3, -2);
       expect(body).toEqual([encode('a\r'), encode('b\r'), encode('c\r')]);
       expect(port.written[port.written.length - 2]).toEqual(bytes(0x04));
     });
 
-    it('sends a single CR for empty content', async () => {
-      autoRespond(port);
+    it('plain raw fallback sends a single CR for empty content', async () => {
+      respondPlain(port);
       await repl.sendRaw('');
-      const body = port.written.slice(2, -2);
+      const body = port.written.slice(3, -2);
       expect(body).toEqual([encode('\r')]);
     });
 
+    it('paste mode sends an empty body for empty content', async () => {
+      respondPaste(port);
+      await repl.sendRaw('');
+      // No data chunks between paste-request and Ctrl-D end-of-data.
+      const body = port.written.slice(3, -2);
+      expect(body).toEqual([]);
+    });
+
     it('only writes the trailing Ctrl-B after the device finishes responding', async () => {
-      // Hook the writes: when the SUT issues Ctrl-D, snapshot what's been
-      // written so far, then inject the response. By the time `sendRaw`
-      // resolves we expect exactly one extra write — the Ctrl-B epilogue.
-      let snapshot: Uint8Array[] | null = null;
+      // Hook the writes manually: respondPlain through Ctrl-D, but snapshot
+      // chunk count at the end-of-data Ctrl-D — the Ctrl-B epilogue only
+      // appends after the response completes.
+      let snapshot: number | null = null;
       port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          snapshot = port.written.slice();
-          port.inject(okResponse('', ''));
+        if (isCtrlA(chunk)) {
+          port.inject(BANNER);
+        } else if (isPasteRequest(chunk)) {
+          port.inject(bytes(0x52, 0x00));
+        } else if (isCtrlD(chunk)) {
+          snapshot = port.written.length;
+          port.inject(
+            concat([encode('OK'), bytes(0x04), bytes(0x04), encode('>')]),
+          );
         }
       };
       await repl.sendRaw('print(1)');
       expect(snapshot).not.toBeNull();
-      // Snapshot taken at Ctrl-D: prologue + body + Ctrl-D = 4 chunks.
-      expect(snapshot!).toHaveLength(4);
-      // After resolution, Ctrl-B has been appended.
-      expect(port.written).toHaveLength(5);
-      expect(port.written[4]).toEqual(bytes(0x02));
+      // At Ctrl-D snapshot: Ctrl-CC, Ctrl-A, paste-req, body, Ctrl-D = 5.
+      expect(snapshot!).toBe(5);
+      // After resolution Ctrl-B is appended.
+      expect(port.written).toHaveLength(6);
+      expect(port.written[5]).toEqual(bytes(0x02));
     });
 
     it('serializes concurrent calls so each prologue/body/epilogue runs contiguously', async () => {
-      autoRespond(port);
+      respondPlain(port);
       await Promise.all([repl.sendRaw('a'), repl.sendRaw('b')]);
 
-      // Each sendRaw produces 5 chunks: Ctrl-CC, Ctrl-A, body, Ctrl-D, Ctrl-B.
-      expect(port.written).toHaveLength(10);
+      // Each sendRaw now produces 6 chunks:
+      //   Ctrl-CC, Ctrl-A, paste-req, body, Ctrl-D, Ctrl-B.
+      expect(port.written).toHaveLength(12);
 
-      expect(port.written.slice(0, 5)).toEqual([
+      const expectedFor = (line: string) => [
         bytes(0x03, 0x03),
         bytes(0x01),
-        encode('a\r'),
+        bytes(0x05, 0x41, 0x01),
+        encode(`${line}\r`),
         bytes(0x04),
         bytes(0x02),
-      ]);
-      expect(port.written.slice(5, 10)).toEqual([
-        bytes(0x03, 0x03),
-        bytes(0x01),
-        encode('b\r'),
-        bytes(0x04),
-        bytes(0x02),
-      ]);
+      ];
+      expect(port.written.slice(0, 6)).toEqual(expectedFor('a'));
+      expect(port.written.slice(6, 12)).toEqual(expectedFor('b'));
     });
 
     it('still serializes the next call after the previous one rejects mid-payload', async () => {
-      autoRespond(port);
+      respondPlain(port);
       const failure = new Error('device hiccup');
       const target = encode('a\r');
       port.shouldRejectWrite = (chunk) => {
@@ -391,6 +533,7 @@ describe('ReplInterface', () => {
     });
 
     it('rejects when a line write fails mid-payload, with no unhandled rejections', async () => {
+      respondPlain(port);
       const failure = new Error('device disconnected');
       const target = encode('b\r');
       port.shouldRejectWrite = (chunk) => {
@@ -413,13 +556,116 @@ describe('ReplInterface', () => {
     });
   });
 
-  describe('sendRaw — response parser', () => {
-    it('returns stdout from the captured response, with empty stderr on success', async () => {
-      port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(okResponse('1\r\n', ''));
+  describe('sendRaw — raw-paste streaming', () => {
+    it('respects the initial window by writing chunks no larger than it', async () => {
+      respondPaste(port, {windowSize: 4});
+      await repl.sendRaw('print(1)'); // 8 bytes
+      const body = port.written.slice(3, -2);
+      // 8 bytes / 4-byte window → 2 chunks of 4 bytes each.
+      expect(body).toEqual([encode('prin'), encode('t(1)')]);
+    });
+
+    it('refills the window on each \\x01 flow-control byte', async () => {
+      const content = 'x'.repeat(20);
+      respondPaste(port, {windowSize: 4});
+      await repl.sendRaw(content);
+      const body = port.written.slice(3, -2);
+      // 20 bytes / 4-byte window → 5 chunks of 4 bytes each.
+      expect(body.map((c) => c.length)).toEqual([4, 4, 4, 4, 4]);
+      const totalBytes = body.reduce((n, c) => n + c.length, 0);
+      expect(totalBytes).toBe(20);
+    });
+
+    it('blocks the next chunk until the device sends a \\x01', async () => {
+      // Custom hook: send banner + R\\x01 + window=2, but withhold the first
+      // \\x01 until we explicitly let it through. Verifies the SUT actually
+      // waits, rather than firing all chunks regardless.
+      let releaseWindow!: () => void;
+      const windowReady = new Promise<void>((r) => {
+        releaseWindow = r;
+      });
+      port.onWrite = async (chunk) => {
+        if (isCtrlA(chunk)) {
+          port.inject(BANNER);
+        } else if (isPasteRequest(chunk)) {
+          port.inject(bytes(0x52, 0x01, 0x02, 0x00));
+        } else if (chunk.length === 2 && chunk[0] === 0x78 && chunk[1] === 0x78) {
+          // First 2-byte data chunk consumed; the SUT will block here.
+          // Inject the \\x01 only after the test releases it.
+          await windowReady;
+          port.inject(bytes(0x01));
+        } else if (isCtrlD(chunk)) {
+          port.inject(
+            concat([bytes(0x04), bytes(0x04), bytes(0x04), encode('>')]),
+          );
         }
       };
+      const send = repl.sendRaw('xxxx');
+      // Give the SUT plenty of time to write the first chunk and stall.
+      await new Promise((r) => setTimeout(r, 20));
+      // At this point only Ctrl-CC, Ctrl-A, paste-req, and the first
+      // 2-byte data chunk should have been written.
+      expect(port.written).toHaveLength(4);
+      expect(port.written[3]).toEqual(encode('xx'));
+      releaseWindow();
+      await send;
+    });
+
+    it('aborts streaming when the device sends \\x04 flow control, but still sends end-of-data', async () => {
+      // Inject \\x04 (abort) instead of \\x01 after the first window. The SUT
+      // should stop streaming, send \\x04 end-of-data, and proceed to the
+      // response phase.
+      let abortInjected = false;
+      port.onWrite = (chunk) => {
+        if (isCtrlA(chunk)) {
+          port.inject(BANNER);
+        } else if (isPasteRequest(chunk)) {
+          port.inject(bytes(0x52, 0x01, 0x04, 0x00)); // window=4
+        } else if (!abortInjected && chunk.length === 4) {
+          abortInjected = true;
+          port.inject(bytes(0x04)); // abort
+        } else if (abortInjected && isCtrlD(chunk)) {
+          // SUT's end-of-data: send paste ack + empty stdout/stderr.
+          port.inject(
+            concat([bytes(0x04), bytes(0x04), bytes(0x04), encode('>')]),
+          );
+        }
+      };
+      const result = await repl.sendRaw('aaaabbbbcccc'); // 12 bytes
+      // The SUT only wrote the first 4 bytes before the abort; the rest
+      // never went out.
+      const body = port.written.slice(3, -2);
+      expect(body).toEqual([encode('aaaa')]);
+      // Last two writes are still Ctrl-D and Ctrl-B.
+      expect(port.written[port.written.length - 2]).toEqual(bytes(0x04));
+      expect(port.written[port.written.length - 1]).toEqual(bytes(0x02));
+      expect(result).toEqual({stdout: '', stderr: ''});
+    });
+
+    it('handles content larger than several window increments', async () => {
+      const content = 'a'.repeat(2048);
+      respondPaste(port, {windowSize: 32});
+      const result = await repl.sendRaw(content);
+      const body = port.written.slice(3, -2);
+      const totalBytes = body.reduce((n, c) => n + c.length, 0);
+      expect(totalBytes).toBe(2048);
+      // Window-aligned chunks except possibly a smaller final one.
+      for (let i = 0; i < body.length - 1; i++) {
+        expect(body[i].length).toBeLessThanOrEqual(32);
+      }
+      expect(result).toEqual({stdout: '', stderr: ''});
+    });
+  });
+
+  describe('sendRaw — response parser', () => {
+    it('returns stdout from a paste-mode response, with empty stderr on success', async () => {
+      respondPaste(port, {stdout: '1\r\n'});
+      const result = await repl.sendRaw('print(1)');
+      expect(result).toEqual({stdout: '1\r\n', stderr: ''});
+    });
+
+    it('returns stdout from a plain-mode (R\\x00) response, with empty stderr on success', async () => {
+      respondPlain(port, {stdout: '1\r\n'});
       const result = await repl.sendRaw('print(1)');
       expect(result).toEqual({stdout: '1\r\n', stderr: ''});
     });
@@ -429,11 +675,7 @@ describe('ReplInterface', () => {
         'Traceback (most recent call last):\r\n' +
         '  File "<stdin>", line 1, in <module>\r\n' +
         'NameError: name \'undefined\' is not defined\r\n';
-      port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(okResponse('', traceback));
-        }
-      };
+      respondPaste(port, {stderr: traceback});
       const result = await repl.sendRaw('undefined');
       expect(result.stdout).toBe('');
       expect(result.stderr).toBe(traceback);
@@ -441,11 +683,7 @@ describe('ReplInterface', () => {
 
     it('captures both stdout and stderr when the program prints before failing', async () => {
       const traceback = 'Traceback (most recent call last):\r\nZeroDivisionError\r\n';
-      port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(okResponse('partial\r\n', traceback));
-        }
-      };
+      respondPaste(port, {stdout: 'partial\r\n', stderr: traceback});
       const result = await repl.sendRaw('print("partial"); 1/0');
       expect(result.stdout).toBe('partial\r\n');
       expect(result.stderr).toBe(traceback);
@@ -453,36 +691,50 @@ describe('ReplInterface', () => {
 
     it('captures syntax-error tracebacks as stderr', async () => {
       const traceback = 'Traceback (most recent call last):\r\nSyntaxError: invalid syntax\r\n';
-      port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(okResponse('', traceback));
-        }
-      };
+      respondPaste(port, {stderr: traceback});
       const result = await repl.sendRaw(')');
       expect(result.stderr).toBe(traceback);
     });
 
-    it('still dispatches a `data` event with the device bytes for the xterm mirror', async () => {
+    it('still dispatches a `data` event with every device byte for the xterm mirror', async () => {
       const seen: Uint8Array[] = [];
       repl.addEventListener('data', (e) => {
         seen.push((e as CustomEvent<Uint8Array>).detail);
       });
-      const response = okResponse('hi\r\n', '');
-      port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(response);
-        }
-      };
+      respondPaste(port, {stdout: 'hi\r\n'});
       await repl.sendRaw('print("hi")');
-      // Every byte the device emitted should also be visible to the data listener.
-      expect(concat(seen)).toEqual(response);
+      // Concatenated device bytes should include both the banner and the
+      // post-Ctrl-D paste-ack/stdout/\\x04/stderr/\\x04/> framing.
+      const all = concat(seen);
+      expect(all).toEqual(
+        concat([
+          BANNER,
+          bytes(0x52, 0x01, 0x80, 0x00),
+          bytes(0x04),
+          encode('hi\r\n'),
+          bytes(0x04),
+          bytes(0x04),
+          encode('>'),
+        ]),
+      );
     });
 
-    it('parses a response delivered byte-by-byte', async () => {
-      const response = okResponse('ok\r\n', '');
+    it('parses a banner delivered byte-by-byte before the handshake', async () => {
       port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          for (const b of response) port.inject([b]);
+        if (isCtrlA(chunk)) {
+          for (const b of BANNER) port.inject([b]);
+        } else if (isPasteRequest(chunk)) {
+          port.inject(bytes(0x52, 0x00));
+        } else if (isCtrlD(chunk)) {
+          port.inject(
+            concat([
+              encode('OK'),
+              encode('ok\r\n'),
+              bytes(0x04),
+              bytes(0x04),
+              encode('>'),
+            ]),
+          );
         }
       };
       const result = await repl.sendRaw('print("ok")');
@@ -492,8 +744,20 @@ describe('ReplInterface', () => {
     it('ignores leftover bytes from a previous program before the banner', async () => {
       const leftover = encode('garbage from the previous run\r\n');
       port.onWrite = (chunk) => {
-        if (chunk.length === 1 && chunk[0] === 0x04) {
-          port.inject(concat([leftover, okResponse('done\r\n', '')]));
+        if (isCtrlA(chunk)) {
+          port.inject(concat([leftover, BANNER]));
+        } else if (isPasteRequest(chunk)) {
+          port.inject(bytes(0x52, 0x00));
+        } else if (isCtrlD(chunk)) {
+          port.inject(
+            concat([
+              encode('OK'),
+              encode('done\r\n'),
+              bytes(0x04),
+              bytes(0x04),
+              encode('>'),
+            ]),
+          );
         }
       };
       const result = await repl.sendRaw('print("done")');
@@ -501,13 +765,12 @@ describe('ReplInterface', () => {
     });
 
     it('rejects when the timeout elapses before the response completes', async () => {
-      // No auto-respond: the parser will sit in the banner phase forever.
+      // No respondPlain/respondPaste: the parser sits in the banner phase forever.
       await expect(repl.sendRaw('print(1)', 20)).rejects.toThrow(/timed out/i);
     });
 
     it('still tries to send Ctrl-B after a timeout so the device leaves raw mode', async () => {
       await expect(repl.sendRaw('print(1)', 20)).rejects.toThrow(/timed out/i);
-      // After timeout: prologue (Ctrl-CC, Ctrl-A) + body + Ctrl-D + Ctrl-B = 5 chunks.
       expect(port.written[port.written.length - 1]).toEqual(bytes(0x02));
     });
   });
