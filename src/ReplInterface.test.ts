@@ -21,6 +21,13 @@ class FakeSerialPort {
    */
   shouldRejectWrite?: (chunk: Uint8Array, index: number) => Error | null | undefined;
 
+  /**
+   * Optional hook fired after each successful write. Tests use it to inject
+   * device responses synchronously in lockstep with the SUT's protocol writes
+   * (e.g. emit the raw banner the moment the SUT sends Ctrl-A).
+   */
+  onWrite?: (chunk: Uint8Array, index: number) => void;
+
   writable: WritableStream<Uint8Array>;
   readable: ReadableStream<Uint8Array>;
 
@@ -32,7 +39,9 @@ class FakeSerialPort {
         const copy = new Uint8Array(chunk);
         const err = this.shouldRejectWrite?.(copy, this.written.length);
         if (err) throw err;
+        const index = this.written.length;
         this.written.push(copy);
+        this.onWrite?.(copy, index);
       },
       close: () => {
         this.writableClosed = true;
@@ -87,6 +96,39 @@ const concat = (chunks: Uint8Array[]): Uint8Array => {
     off += c.length;
   }
   return out;
+};
+
+/**
+ * A minimal canned raw-REPL response: banner, OK, the supplied stdout/stderr,
+ * the two `\x04` framing bytes, and the trailing `>`.
+ */
+const okResponse = (stdout = '', stderr = ''): Uint8Array =>
+  concat([
+    encode('\r\nraw REPL; CTRL-B to exit\r\n>OK'),
+    encode(stdout),
+    bytes(0x04),
+    encode(stderr),
+    bytes(0x04),
+    encode('>'),
+  ]);
+
+/**
+ * Auto-respond to any `sendRaw` issued during the test: when the SUT writes
+ * Ctrl-D (the last protocol write before it begins waiting), inject the
+ * canned response. Returns an unsubscribe so tests that need finer control
+ * can disable the auto-reply.
+ */
+const autoRespond = (port: FakeSerialPort, response: Uint8Array = okResponse()): (() => void) => {
+  const previous = port.onWrite;
+  port.onWrite = (chunk, index) => {
+    previous?.(chunk, index);
+    if (chunk.length === 1 && chunk[0] === 0x04) {
+      port.inject(response);
+    }
+  };
+  return () => {
+    port.onWrite = previous;
+  };
 };
 
 describe('ReplInterface', () => {
@@ -201,7 +243,8 @@ describe('ReplInterface', () => {
     it('does not deadlock when called while a sendRaw is in flight', async () => {
       // disconnect must not wait on the write-serialization chain — if it did,
       // a stalled write would prevent the writer from ever closing. We start
-      // a sendRaw and immediately disconnect; both promises must settle.
+      // a sendRaw (no auto-response, so the parser is hanging) and immediately
+      // disconnect; both promises must settle.
       const sendPromise = repl.sendRaw('print(1)').catch(() => undefined);
       const disconnectPromise = repl.disconnect();
       await Promise.race([
@@ -211,6 +254,14 @@ describe('ReplInterface', () => {
         ),
       ]);
       expect(port.writableClosed).toBe(true);
+    });
+
+    it('rejects an in-flight sendRaw when the read loop ends', async () => {
+      const failure = new Error('device disconnected');
+      const sendPromise = repl.sendRaw('print(1)');
+      // Bytes start arriving but the response never completes (no \x04 pair).
+      port.errorReadable(failure);
+      await expect(sendPromise).rejects.toBe(failure);
     });
   });
 
@@ -237,14 +288,16 @@ describe('ReplInterface', () => {
     });
   });
 
-  describe('sendRaw', () => {
+  describe('sendRaw — protocol writes', () => {
     it('opens with Ctrl-C twice and Ctrl-A', async () => {
+      autoRespond(port);
       await repl.sendRaw('print(1)');
       expect(port.written[0]).toEqual(bytes(0x03, 0x03));
       expect(port.written[1]).toEqual(bytes(0x01));
     });
 
     it('terminates with Ctrl-D then Ctrl-B', async () => {
+      autoRespond(port);
       await repl.sendRaw('print(1)');
       const last = port.written.length - 1;
       expect(port.written[last - 1]).toEqual(bytes(0x04));
@@ -252,38 +305,54 @@ describe('ReplInterface', () => {
     });
 
     it('writes a single-line payload as `<line>\\r`', async () => {
+      autoRespond(port);
       await repl.sendRaw('print(1)');
       const body = port.written.slice(2, -2);
       expect(body).toEqual([encode('print(1)\r')]);
     });
 
     it('writes each line of a multi-line payload in order, CR-terminated, before Ctrl-D', async () => {
+      autoRespond(port);
       await repl.sendRaw('a\nb\nc');
       const body = port.written.slice(2, -2);
       expect(body).toEqual([encode('a\r'), encode('b\r'), encode('c\r')]);
-      // And the body sits between the prologue and the Ctrl-D / Ctrl-B epilogue.
       expect(port.written[port.written.length - 2]).toEqual(bytes(0x04));
     });
 
     it('sends a single CR for empty content', async () => {
+      autoRespond(port);
       await repl.sendRaw('');
       const body = port.written.slice(2, -2);
       expect(body).toEqual([encode('\r')]);
     });
 
+    it('only writes the trailing Ctrl-B after the device finishes responding', async () => {
+      // Hook the writes: when the SUT issues Ctrl-D, snapshot what's been
+      // written so far, then inject the response. By the time `sendRaw`
+      // resolves we expect exactly one extra write — the Ctrl-B epilogue.
+      let snapshot: Uint8Array[] | null = null;
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          snapshot = port.written.slice();
+          port.inject(okResponse('', ''));
+        }
+      };
+      await repl.sendRaw('print(1)');
+      expect(snapshot).not.toBeNull();
+      // Snapshot taken at Ctrl-D: prologue + body + Ctrl-D = 4 chunks.
+      expect(snapshot!).toHaveLength(4);
+      // After resolution, Ctrl-B has been appended.
+      expect(port.written).toHaveLength(5);
+      expect(port.written[4]).toEqual(bytes(0x02));
+    });
+
     it('serializes concurrent calls so each prologue/body/epilogue runs contiguously', async () => {
-      // Two sendRaw calls in flight at the same time. Without a write mutex,
-      // the WritableStream's per-chunk queueing interleaves them: caller A
-      // enqueues its prologue, yields, caller B enqueues *its* prologue
-      // before A's body lands. End result on the wire is something like
-      // [A.Ctrl-CC, B.Ctrl-CC, A.Ctrl-A, B.Ctrl-A, ...] which breaks the
-      // raw-REPL state machine on the device.
+      autoRespond(port);
       await Promise.all([repl.sendRaw('a'), repl.sendRaw('b')]);
 
       // Each sendRaw produces 5 chunks: Ctrl-CC, Ctrl-A, body, Ctrl-D, Ctrl-B.
       expect(port.written).toHaveLength(10);
 
-      // First call's full sequence must appear before second call begins.
       expect(port.written.slice(0, 5)).toEqual([
         bytes(0x03, 0x03),
         bytes(0x01),
@@ -301,11 +370,11 @@ describe('ReplInterface', () => {
     });
 
     it('still serializes the next call after the previous one rejects mid-payload', async () => {
+      autoRespond(port);
       const failure = new Error('device hiccup');
       const target = encode('a\r');
       port.shouldRejectWrite = (chunk) => {
         if (chunk.length === target.length && chunk.every((b, i) => b === target[i])) {
-          // One-shot: clear the hook so subsequent calls succeed.
           port.shouldRejectWrite = undefined;
           return failure;
         }
@@ -331,22 +400,115 @@ describe('ReplInterface', () => {
         return null;
       };
 
-      // The original forEach-based implementation discarded each line write's
-      // promise, so a mid-payload failure surfaced as an unhandled rejection
-      // even though sendRaw still rejected (via the errored-stream epilogue).
-      // Verify both: sendRaw rejects with the original failure AND no rejection
-      // is left dangling.
       const unhandled: unknown[] = [];
       const onUnhandled = (reason: unknown) => unhandled.push(reason);
       process.on('unhandledRejection', onUnhandled);
       try {
         await expect(repl.sendRaw('a\nb\nc')).rejects.toBe(failure);
-        // Let queued microtasks settle so any orphaned rejection surfaces.
         await new Promise((r) => setTimeout(r, 0));
         expect(unhandled).toEqual([]);
       } finally {
         process.off('unhandledRejection', onUnhandled);
       }
+    });
+  });
+
+  describe('sendRaw — response parser', () => {
+    it('returns stdout from the captured response, with empty stderr on success', async () => {
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(okResponse('1\r\n', ''));
+        }
+      };
+      const result = await repl.sendRaw('print(1)');
+      expect(result).toEqual({stdout: '1\r\n', stderr: ''});
+    });
+
+    it('captures stderr for a runtime exception, with stdout empty', async () => {
+      const traceback =
+        'Traceback (most recent call last):\r\n' +
+        '  File "<stdin>", line 1, in <module>\r\n' +
+        'NameError: name \'undefined\' is not defined\r\n';
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(okResponse('', traceback));
+        }
+      };
+      const result = await repl.sendRaw('undefined');
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(traceback);
+    });
+
+    it('captures both stdout and stderr when the program prints before failing', async () => {
+      const traceback = 'Traceback (most recent call last):\r\nZeroDivisionError\r\n';
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(okResponse('partial\r\n', traceback));
+        }
+      };
+      const result = await repl.sendRaw('print("partial"); 1/0');
+      expect(result.stdout).toBe('partial\r\n');
+      expect(result.stderr).toBe(traceback);
+    });
+
+    it('captures syntax-error tracebacks as stderr', async () => {
+      const traceback = 'Traceback (most recent call last):\r\nSyntaxError: invalid syntax\r\n';
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(okResponse('', traceback));
+        }
+      };
+      const result = await repl.sendRaw(')');
+      expect(result.stderr).toBe(traceback);
+    });
+
+    it('still dispatches a `data` event with the device bytes for the xterm mirror', async () => {
+      const seen: Uint8Array[] = [];
+      repl.addEventListener('data', (e) => {
+        seen.push((e as CustomEvent<Uint8Array>).detail);
+      });
+      const response = okResponse('hi\r\n', '');
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(response);
+        }
+      };
+      await repl.sendRaw('print("hi")');
+      // Every byte the device emitted should also be visible to the data listener.
+      expect(concat(seen)).toEqual(response);
+    });
+
+    it('parses a response delivered byte-by-byte', async () => {
+      const response = okResponse('ok\r\n', '');
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          for (const b of response) port.inject([b]);
+        }
+      };
+      const result = await repl.sendRaw('print("ok")');
+      expect(result).toEqual({stdout: 'ok\r\n', stderr: ''});
+    });
+
+    it('ignores leftover bytes from a previous program before the banner', async () => {
+      const leftover = encode('garbage from the previous run\r\n');
+      port.onWrite = (chunk) => {
+        if (chunk.length === 1 && chunk[0] === 0x04) {
+          port.inject(concat([leftover, okResponse('done\r\n', '')]));
+        }
+      };
+      const result = await repl.sendRaw('print("done")');
+      expect(result).toEqual({stdout: 'done\r\n', stderr: ''});
+    });
+
+    it('rejects when the timeout elapses before the response completes', async () => {
+      // No auto-respond: the parser will sit in the banner phase forever.
+      await expect(repl.sendRaw('print(1)', 20)).rejects.toThrow(/timed out/i);
+    });
+
+    it('still tries to send Ctrl-B after a timeout so the device leaves raw mode', async () => {
+      await expect(repl.sendRaw('print(1)', 20)).rejects.toThrow(/timed out/i);
+      // After timeout: prologue (Ctrl-CC, Ctrl-A) + body + Ctrl-D + Ctrl-B = 5 chunks.
+      expect(port.written[port.written.length - 1]).toEqual(bytes(0x02));
     });
   });
 

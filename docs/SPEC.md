@@ -30,6 +30,7 @@ Wraps the Web Serial API and implements the MicroPython raw-REPL protocol.
 - **Output:** extends `EventTarget`; dispatches `'data'` events (`CustomEvent<Uint8Array>`) as bytes arrive from the device.
 - **Async coordination:** uses `AsyncBlockingQueue<Uint8Array>` from `src/Queues.ts` to serialise reads from the underlying `ReadableStream`.
 - **Write serialisation:** `send`, `sendRaw`, and `reset` are mutually exclusive end-to-end via an internal single-slot promise chain, so one caller's prologue cannot interleave with another's body in the underlying `WritableStream`. `disconnect` deliberately does not take this lock — it relies on `WritableStreamDefaultWriter.close()` to flush queued chunks.
+- **Raw-REPL response parsing:** `sendRaw(code, timeoutMs?)` returns `Promise<{stdout: string, stderr: string}>`. While a call is in flight, the read loop also feeds incoming bytes to an internal state machine that walks the protocol phases (banner → `OK` → stdout → `\x04` → stderr → `\x04`) and resolves after the second `\x04`. The `'data'` event is still fired with the full byte stream so the xterm mirror is unaffected. On timeout (default 30 s) or device disconnect, the call rejects; the `Ctrl-B` epilogue is sent best-effort either way so the device leaves raw mode.
 
 #### `CodeEditor`
 

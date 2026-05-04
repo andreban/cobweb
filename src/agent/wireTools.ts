@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ToolRegistry } from '@mast-ai/core';
+import type { RunResult } from '../ReplInterface';
 import { ReadEditorTool } from './tools/ReadEditorTool';
 import { WriteEditorTool } from './tools/WriteEditorTool';
 import { RunCodeTool } from './tools/RunCodeTool';
@@ -10,7 +11,7 @@ import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
 export interface ToolBindings {
   getEditorContent(): string;
   setEditorContent(code: string): void;
-  runCode(code: string): Promise<void>;
+  runCode(code: string): Promise<RunResult>;
   getReplHistory(): string[];
   onData(handler: (data: Uint8Array) => void): () => void;
 }

@@ -136,7 +136,7 @@ Registered into the shared `ToolRegistry` from `AppModels` at startup, before an
 export interface ToolBindings {
   getEditorContent(): string;
   setEditorContent(code: string): void;
-  runCode(code: string): Promise<void>;
+  runCode(code: string): Promise<{stdout: string; stderr: string}>;
   getReplHistory(): string[];
   onData(handler: (data: Uint8Array) => void): () => void;
 }
@@ -158,7 +158,7 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void;
 ### `RunCodeTool`
 - scope: `'write'`, `requiresApproval: true`
 - Args: `{ code?: string }` — if omitted, runs the current editor content.
-- Sends code to the REPL via `bindings.runCode`; subscribes via `bindings.onData` and resolves with the collected REPL output once the device has been idle for `idleMs` (default 1 s), capped at `maxMs` (default 30 s).
+- Sends code to the REPL via `bindings.runCode`, which now parses the raw-REPL response and resolves with `{stdout, stderr}`. The tool formats those into a single string for the agent (labels stderr when present), instead of relying on idle/max output timers.
 
 ### `ReadReplHistoryTool`
 - scope: `'read'`
@@ -261,7 +261,7 @@ Owns the `ReplInterface` lifecycle. `connect()` calls `ReplInterface.connect()` 
   connect(): Promise<void>,
   disconnect(): Promise<void>,
   reset(): Promise<void>,
-  runCode(code: string): Promise<void>,
+  runCode(code: string): Promise<{stdout: string; stderr: string}>,
   replHistory: string[],            // last N lines, for ReadReplHistoryTool
   onData(handler: (data: Uint8Array) => void): () => void,
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { RunCodeTool } from './RunCodeTool';
 import type { ToolBindings } from '../wireTools';
 
@@ -9,7 +9,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
-    runCode: async () => {},
+    runCode: async () => ({stdout: '', stderr: ''}),
     getReplHistory: () => [],
     onData: () => () => {},
     ...overrides,
@@ -17,14 +17,6 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
 }
 
 describe('RunCodeTool', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('definition has correct name, scope, and requires approval', () => {
     const tool = new RunCodeTool(() => makeBindings());
     const def = tool.definition();
@@ -39,89 +31,69 @@ describe('RunCodeTool', () => {
   });
 
   it('falls back to editor content when code arg is omitted', async () => {
-    const runCode = vi.fn().mockResolvedValue(undefined);
+    const runCode = vi.fn().mockResolvedValue({stdout: '42\n', stderr: ''});
     const tool = new RunCodeTool(
       () => makeBindings({ getEditorContent: () => 'print(42)', runCode }),
-      { idleMs: 10, maxMs: 100 },
     );
-    const promise = tool.call({}, {});
-    await vi.advanceTimersByTimeAsync(100);
-    await promise;
+    await tool.call({}, {});
     expect(runCode).toHaveBeenCalledWith('print(42)');
   });
 
-  it('collects REPL output and resolves after idle period', async () => {
-    let dataHandler: ((data: Uint8Array) => void) | null = null;
+  it('returns stdout when stderr is empty', async () => {
     const tool = new RunCodeTool(
-      () =>
-        makeBindings({
-          runCode: async () => {},
-          onData: (h) => {
-            dataHandler = h;
-            return () => {
-              dataHandler = null;
-            };
-          },
-        }),
-      { idleMs: 50, maxMs: 5000 },
+      () => makeBindings({runCode: async () => ({stdout: 'hello\n', stderr: ''})}),
     );
-
-    const promise = tool.call({ code: 'print("hi")' }, {});
-    // Allow the runCode microtask + onData subscription to settle.
-    await Promise.resolve();
-    dataHandler!(new TextEncoder().encode('hello\n'));
-    await vi.advanceTimersByTimeAsync(50);
-    await expect(promise).resolves.toBe('hello\n');
+    await expect(tool.call({code: 'print("hello")'}, {})).resolves.toBe('hello\n');
   });
 
-  it('hits the max timeout when output keeps streaming', async () => {
-    let dataHandler: ((data: Uint8Array) => void) | null = null;
+  it('labels stderr when present alongside stdout', async () => {
     const tool = new RunCodeTool(
-      () =>
-        makeBindings({
-          runCode: async () => {},
-          onData: (h) => {
-            dataHandler = h;
-            return () => {};
-          },
-        }),
-      { idleMs: 1000, maxMs: 200 },
+      () => makeBindings({runCode: async () => ({stdout: 'partial\n', stderr: 'NameError: x\n'})}),
     );
-
-    const promise = tool.call({ code: 'while True: pass' }, {});
-    await Promise.resolve();
-    dataHandler!(new TextEncoder().encode('a'));
-    await vi.advanceTimersByTimeAsync(200);
-    await expect(promise).resolves.toBe('a');
+    await expect(tool.call({code: 'x'}, {})).resolves.toBe('partial\n\nstderr:\nNameError: x\n');
   });
 
-  it('rejects when the abort signal fires', async () => {
+  it('returns stderr only when stdout is empty', async () => {
+    const tool = new RunCodeTool(
+      () => makeBindings({runCode: async () => ({stdout: '', stderr: 'SyntaxError\n'})}),
+    );
+    await expect(tool.call({code: ')'}, {})).resolves.toBe('stderr:\nSyntaxError\n');
+  });
+
+  it('returns "(no output)" when stdout and stderr are both empty', async () => {
+    const tool = new RunCodeTool(
+      () => makeBindings({runCode: async () => ({stdout: '', stderr: ''})}),
+    );
+    await expect(tool.call({code: 'pass'}, {})).resolves.toBe('(no output)');
+  });
+
+  it('rejects when the abort signal fires before runCode resolves', async () => {
     const controller = new AbortController();
+    let neverResolve!: () => void;
     const tool = new RunCodeTool(
       () =>
         makeBindings({
-          runCode: async () => {},
-          onData: () => () => {},
+          runCode: () => new Promise<{stdout: string; stderr: string}>((res) => {
+            // Stash so the test can release it after asserting (avoids hanging Vitest).
+            neverResolve = () => res({stdout: '', stderr: ''});
+          }),
         }),
-      { idleMs: 50, maxMs: 5000 },
     );
-    const promise = tool.call({ code: 'x' }, { signal: controller.signal });
-    await Promise.resolve();
+    const promise = tool.call({code: 'x'}, {signal: controller.signal});
     controller.abort();
     await expect(promise).rejects.toThrow('aborted');
+    neverResolve();
   });
 
-  it('rejects when runCode throws', async () => {
+  it('rejects when runCode rejects', async () => {
     const tool = new RunCodeTool(
       () =>
         makeBindings({
           runCode: async () => {
             throw new Error('serial closed');
           },
-          onData: () => () => {},
         }),
-      { idleMs: 50, maxMs: 5000 },
     );
-    await expect(tool.call({ code: 'x' }, {})).rejects.toThrow('serial closed');
+    await expect(tool.call({code: 'x'}, {})).rejects.toThrow('serial closed');
   });
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useRef, useState } from 'react';
-import { ReplInterface } from '../ReplInterface';
+import { ReplInterface, type RunResult } from '../ReplInterface';
 
 const MAX_HISTORY_LINES = 100;
 
@@ -78,10 +78,11 @@ export function useReplConnection() {
     }
   }, []);
 
-  const runCode = useCallback(async (code: string) => {
-    if (replRef.current) {
-      await replRef.current.sendRaw(code);
+  const runCode = useCallback(async (code: string): Promise<RunResult> => {
+    if (!replRef.current) {
+      throw new Error('Not connected');
     }
+    return replRef.current.sendRaw(code);
   }, []);
 
   const send = useCallback(async (data: string) => {
