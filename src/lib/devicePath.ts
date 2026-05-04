@@ -52,6 +52,16 @@ export function basename(path: string): string {
 }
 
 /**
+ * Escape a string so it can be embedded inside a single-quoted Python string
+ * literal. Only backslash and single quote are escaped — callers must validate
+ * their inputs (paths come from validated names; payloads cross the wire as
+ * base64). No expression interpolation is performed.
+ */
+export function escapePythonStr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/**
  * Validate a single path component (no slashes) for use in create / rename UI.
  * The returned `reason` is a short, user-facing string suitable for inline display.
  */
