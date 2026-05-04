@@ -16,6 +16,7 @@ export function useReplConnection() {
   const textBufferRef = useRef('');
   const decoderRef = useRef(new TextDecoder());
   const dataListenerRef = useRef<((e: Event) => void) | null>(null);
+  const disconnectListenerRef = useRef<((e: Event) => void) | null>(null);
 
   const handleData = useCallback((data: Uint8Array) => {
     handlersRef.current.forEach((h) => h(data));
@@ -32,9 +33,24 @@ export function useReplConnection() {
 
   const connect = useCallback(async () => {
     const repl = await ReplInterface.connect();
-    const listener = (e: Event) => handleData((e as CustomEvent<Uint8Array>).detail);
-    repl.addEventListener('data', listener);
-    dataListenerRef.current = listener;
+    const dataListener = (e: Event) => handleData((e as CustomEvent<Uint8Array>).detail);
+    // Fires when the device-side connection drops (cable yanked, USB error,
+    // EOF). Explicit user-initiated disconnect removes this before it can fire.
+    const disconnectListener = () => {
+      if (replRef.current === repl) {
+        replRef.current = null;
+      }
+      if (dataListenerRef.current) {
+        repl.removeEventListener('data', dataListenerRef.current);
+        dataListenerRef.current = null;
+      }
+      disconnectListenerRef.current = null;
+      setConnectionState('disconnected');
+    };
+    repl.addEventListener('data', dataListener);
+    repl.addEventListener('disconnect', disconnectListener, {once: true});
+    dataListenerRef.current = dataListener;
+    disconnectListenerRef.current = disconnectListener;
     replRef.current = repl;
     setConnectionState('connected');
   }, [handleData]);
@@ -45,6 +61,10 @@ export function useReplConnection() {
       if (dataListenerRef.current) {
         repl.removeEventListener('data', dataListenerRef.current);
         dataListenerRef.current = null;
+      }
+      if (disconnectListenerRef.current) {
+        repl.removeEventListener('disconnect', disconnectListenerRef.current);
+        disconnectListenerRef.current = null;
       }
       await repl.disconnect();
       replRef.current = null;
