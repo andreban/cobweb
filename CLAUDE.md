@@ -113,6 +113,14 @@ gh api graphql -f query='{
 }'
 ```
 
+## Testing
+
+- Write Vitest tests for every new module that contains logic (providers, hooks, utilities, tools).
+- Test files live alongside source files: `src/providers/storage.test.ts`, `src/hooks/useProviderConfig.test.ts`, etc.
+- Use `@testing-library/react` for hook tests (`renderHook`).
+- Use `happy-dom` as the Vitest environment (already configured via `src/test/setup.ts`).
+- Do not test React components purely through unit tests — those require browser testing.
+
 ## Git Conventions
 
 - Always use `Edit` to modify existing files — never rewrite them wholesale with `Write`. Small diffs make reviews easier.
