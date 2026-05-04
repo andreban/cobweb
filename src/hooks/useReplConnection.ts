@@ -64,10 +64,16 @@ export function useReplConnection() {
     }
   }, []);
 
+  const send = useCallback(async (data: string) => {
+    if (replRef.current) {
+      await replRef.current.send(data);
+    }
+  }, []);
+
   const onData = useCallback((handler: (data: Uint8Array) => void): (() => void) => {
     handlersRef.current.add(handler);
     return () => handlersRef.current.delete(handler);
   }, []);
 
-  return { connectionState, connect, disconnect, reset, runCode, replHistory, onData };
+  return { connectionState, connect, disconnect, reset, runCode, send, replHistory, onData };
 }

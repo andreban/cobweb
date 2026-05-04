@@ -8,9 +8,10 @@ import 'xterm/css/xterm.css';
 
 interface ReplShellProps {
   onData: (handler: (data: Uint8Array) => void) => () => void;
+  onInput?: (data: string) => void;
 }
 
-export function ReplShell({ onData }: ReplShellProps) {
+export function ReplShell({ onData, onInput }: ReplShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,6 +23,10 @@ export function ReplShell({ onData }: ReplShellProps) {
     fitAddon.fit();
 
     const unsubscribe = onData((data) => terminal.write(data));
+
+    if (onInput) {
+      terminal.onKey(({ key }) => onInput(key));
+    }
 
     const resizeObserver = new ResizeObserver(() => fitAddon.fit());
     resizeObserver.observe(container);

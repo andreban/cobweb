@@ -12,7 +12,7 @@ import { ReplShell } from './components/ReplShell';
 import { useReplConnection } from './hooks/useReplConnection';
 
 function App() {
-  const { connectionState, connect, disconnect, reset, runCode, onData } =
+  const { connectionState, connect, disconnect, reset, runCode, send, onData } =
     useReplConnection();
 
   const [leftOpen, setLeftOpen] = useState(true);
@@ -64,7 +64,7 @@ function App() {
                 >
                   {[
                     <div key="editor" style={{ padding: 8, background: '#fff', height: '100%' }}>CodeEditor</div>,
-                    <ReplShell key="repl" onData={onData} />,
+                    <ReplShell key="repl" onData={onData} onInput={send} />,
                   ]}
                 </SplitPane>,
                 <div key="agent" style={{ padding: 8, background: '#f9fafb', height: '100%' }}>ConversationPanel</div>,
