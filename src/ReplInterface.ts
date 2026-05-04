@@ -64,9 +64,9 @@ export class ReplInterface extends EventTarget {
     console.log('>>>(raw): ', content);
     await this.writer.write(Uint8Array.from([0x03, 0x03]));
     await this.writer.write(Uint8Array.from([0x01]));
-    content.split('\n').forEach(
-        async line => await this.writer.write(this.encoder.encode(line + '\r'))
-    );
+    for (const line of content.split('\n')) {
+      await this.writer.write(this.encoder.encode(line + '\r'));
+    }
     await this.writer.write(Uint8Array.from([0x04]));
     await this.writer.write(Uint8Array.from([0x02]));    
   }

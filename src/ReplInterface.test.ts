@@ -14,6 +14,13 @@ class FakeSerialPort {
   writableClosed = false;
   readableCancelled = false;
 
+  /**
+   * Optional hook letting tests fail a specific write. Return an Error to
+   * reject the underlying sink (which errors the stream), or null/undefined
+   * to accept the chunk normally.
+   */
+  shouldRejectWrite?: (chunk: Uint8Array, index: number) => Error | null | undefined;
+
   writable: WritableStream<Uint8Array>;
   readable: ReadableStream<Uint8Array>;
 
@@ -22,8 +29,10 @@ class FakeSerialPort {
   constructor() {
     this.writable = new WritableStream<Uint8Array>({
       write: (chunk) => {
-        // Copy so later mutation by the SUT can't affect what we captured.
-        this.written.push(new Uint8Array(chunk));
+        const copy = new Uint8Array(chunk);
+        const err = this.shouldRejectWrite?.(copy, this.written.length);
+        if (err) throw err;
+        this.written.push(copy);
       },
       close: () => {
         this.writableClosed = true;
@@ -191,6 +200,34 @@ describe('ReplInterface', () => {
       await repl.sendRaw('');
       const body = port.written.slice(2, -2);
       expect(body).toEqual([encode('\r')]);
+    });
+
+    it('rejects when a line write fails mid-payload, with no unhandled rejections', async () => {
+      const failure = new Error('device disconnected');
+      const target = encode('b\r');
+      port.shouldRejectWrite = (chunk) => {
+        if (chunk.length === target.length && chunk.every((b, i) => b === target[i])) {
+          return failure;
+        }
+        return null;
+      };
+
+      // The original forEach-based implementation discarded each line write's
+      // promise, so a mid-payload failure surfaced as an unhandled rejection
+      // even though sendRaw still rejected (via the errored-stream epilogue).
+      // Verify both: sendRaw rejects with the original failure AND no rejection
+      // is left dangling.
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        await expect(repl.sendRaw('a\nb\nc')).rejects.toBe(failure);
+        // Let queued microtasks settle so any orphaned rejection surfaces.
+        await new Promise((r) => setTimeout(r, 0));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
     });
   });
 
