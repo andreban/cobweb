@@ -303,6 +303,18 @@ Props: `connectionState`, `isAgentConfigured: boolean`.
 
 ---
 
+## UI Component Library
+
+**Decision: shadcn/ui + Tailwind CSS v4.**
+
+The app needs modest UI primitives (buttons, modal dialog, dropdown, text inputs) for the toolbar and settings panel. shadcn/ui provides copy-paste components built on Radix UI (accessible) with zero runtime library overhead — components live in `src/components/ui/` and are fully owned by the project. Tailwind CSS v4 (via `@tailwindcss/vite`) handles styling with no separate config file.
+
+daisyUI was considered but offers less flexibility for a custom IDE layout. MUI was ruled out as too heavyweight and opinionated.
+
+**Packages added:** `tailwindcss`, `@tailwindcss/vite`, `tw-animate-css`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`, `@radix-ui/*` (installed on demand by shadcn CLI).
+
+---
+
 ## New Dependencies
 
 | Package | Purpose |
@@ -319,6 +331,10 @@ Props: `connectionState`, `isAgentConfigured: boolean`.
 | `@mast-ai/react-ui` | AgentProvider, ConversationPanel, useAgent, hooks |
 | `@google/genai` | Gemini SDK (peer dep of google-genai adapter) |
 | `react-markdown`, `remark-gfm`, `rehype-sanitize` | Optional — enables Markdown rendering in assistant bubbles |
+| `tailwindcss`, `@tailwindcss/vite` | Tailwind CSS v4 (styling for shadcn/ui components) |
+| `tw-animate-css` | Animation utilities used by shadcn/ui |
+| `class-variance-authority`, `clsx`, `tailwind-merge` | shadcn/ui component utilities |
+| `lucide-react` | Icon set used by shadcn/ui |
 
 **Remove:** `lit`, `@codemirror/basic-setup@0.18.x`, `@codemirror/lang-python@0.18.x`, `@codemirror/text`, `@codemirror/view@0.18.x`
 
@@ -329,9 +345,10 @@ Props: `connectionState`, `isAgentConfigured: boolean`.
 ```ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   build: { outDir: 'dist' },
 });
 ```
