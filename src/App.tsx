@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useMemo, useState } from 'react';
-import { AgentProvider, ConversationPanel, INLINE_APPROVAL } from '@mast-ai/react-ui';
+import { AgentProvider, INLINE_APPROVAL } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
@@ -10,6 +10,8 @@ import { Toolbar } from './components/Toolbar';
 import { ReplShell } from './components/ReplShell';
 import { CodeEditor } from './components/CodeEditor';
 import { FileNavigator } from './components/FileNavigator';
+import { SettingsPanel } from './components/SettingsPanel';
+import { AgentPanel } from './components/AgentPanel';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor } from './hooks/useEditor';
 import { useProviderConfig } from './hooks/useProviderConfig';
@@ -24,7 +26,7 @@ const models = createModels();
 export function App() {
   const { connectionState, connect, disconnect, reset, runCode, send, onData, replHistory } =
     useReplConnection();
-  const { config } = useProviderConfig();
+  const { config, save: saveConfig, clear: clearConfig } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
   const { editorRef, getContent, setContent } = useEditor(theme);
 
@@ -52,6 +54,7 @@ export function App() {
     [],
   );
 
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftSize, setLeftSize] = useState(20);
   const [rightOpen, setRightOpen] = useState(true);
@@ -78,7 +81,7 @@ export function App() {
           onDisconnect={disconnect}
           onReset={reset}
           onRun={() => runCode(getContent())}
-          onOpenSettings={() => {}}
+          onOpenSettings={() => setIsSettingsOpen(true)}
           isAgentConfigured={config !== null}
           themePreference={themePreference}
           onCycleTheme={cycleTheme}
@@ -115,7 +118,12 @@ export function App() {
                       <ReplShell key="repl" onData={onData} onInput={send} theme={theme} />,
                     ]}
                   </SplitPane>,
-                  <ConversationPanel key="agent" inputPlaceholder="Ask the assistant…" theme={theme} />,
+                  <AgentPanel
+                    key="agent"
+                    theme={theme}
+                    inputPlaceholder="Ask the assistant…"
+                    onResetConversation={() => localStorage.removeItem('cobweb:conversation')}
+                  />,
                 ]}
               </SplitPane>,
             ]}
@@ -132,6 +140,13 @@ export function App() {
           onToggleRight={() => setRightOpen((o) => !o)}
         />
       </div>
+      <SettingsPanel
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        config={config}
+        onSave={saveConfig}
+        onClear={clearConfig}
+      />
     </AgentProvider>
   );
 }
