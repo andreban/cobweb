@@ -23,9 +23,9 @@ const models = createModels();
 export function App() {
   const { connectionState, connect, disconnect, reset, runCode, send, onData } =
     useReplConnection();
-  const { editorRef, getContent, setContent } = useEditor();
   const { config } = useProviderConfig();
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
+  const { editorRef, getContent, setContent } = useEditor(theme);
 
   const runner = useMemo(() => {
     if (!config) return null;
@@ -69,8 +69,8 @@ export function App() {
           onRun={() => runCode(getContent())}
           onOpenSettings={() => {}}
           isAgentConfigured={config !== null}
-          theme={theme}
-          onToggleTheme={toggleTheme}
+          themePreference={themePreference}
+          onCycleTheme={cycleTheme}
         />
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <SplitPane
@@ -101,7 +101,7 @@ export function App() {
                   >
                     {[
                       <CodeEditor key="editor" editorRef={editorRef} />,
-                      <ReplShell key="repl" onData={onData} onInput={send} />,
+                      <ReplShell key="repl" onData={onData} onInput={send} theme={theme} />,
                     ]}
                   </SplitPane>,
                   <ConversationPanel key="agent" inputPlaceholder="Ask the assistant…" theme={theme} />,

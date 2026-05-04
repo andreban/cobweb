@@ -1,9 +1,10 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { Moon, Play, Plug, RotateCcw, Settings, Sun, Unplug } from 'lucide-react';
+import { Monitor, Moon, Play, Plug, RotateCcw, Settings, Sun, Unplug } from 'lucide-react';
 
 type ConnectionState = 'disconnected' | 'connected';
+type ThemePreference = 'light' | 'dark' | 'system';
 
 interface ToolbarProps {
   connectionState: ConnectionState;
@@ -13,9 +14,15 @@ interface ToolbarProps {
   onRun: () => void;
   onOpenSettings: () => void;
   isAgentConfigured: boolean;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+  themePreference: ThemePreference;
+  onCycleTheme: () => void;
 }
+
+const THEME_LABEL: Record<ThemePreference, string> = {
+  light: 'Theme: light (click for dark)',
+  dark: 'Theme: dark (click for system)',
+  system: 'Theme: system (click for light)',
+};
 
 export function Toolbar({
   connectionState,
@@ -24,10 +31,12 @@ export function Toolbar({
   onReset,
   onRun,
   onOpenSettings,
-  theme,
-  onToggleTheme,
+  themePreference,
+  onCycleTheme,
 }: ToolbarProps) {
   const connected = connectionState === 'connected';
+  const ThemeIcon =
+    themePreference === 'light' ? Sun : themePreference === 'dark' ? Moon : Monitor;
 
   return (
     <div className="flex items-center gap-2 h-10 px-3 bg-muted border-b border-border shrink-0">
@@ -78,11 +87,11 @@ export function Toolbar({
       <div className="flex-1" />
 
       <button
-        onClick={onToggleTheme}
-        title="Toggle theme"
+        onClick={onCycleTheme}
+        title={THEME_LABEL[themePreference]}
         className="p-1.5 rounded hover:bg-accent transition-colors"
       >
-        {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        <ThemeIcon size={14} />
       </button>
 
       <button

@@ -3,20 +3,24 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState, Extension } from '@codemirror/state';
 import { python } from '@codemirror/lang-python';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { catppuccinLatte, catppuccinMocha } from '@catppuccin/codemirror';
 
-export function useEditor() {
+export function useEditor(theme: 'light' | 'dark') {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const themeCompartment = useRef(new Compartment());
+
+  const themeExtension = (t: 'light' | 'dark'): Extension =>
+    t === 'dark' ? catppuccinMocha : catppuccinLatte;
 
   useEffect(() => {
     if (!editorRef.current) return;
 
     const view = new EditorView({
       state: EditorState.create({
-        extensions: [basicSetup, python(), oneDark],
+        extensions: [basicSetup, python(), themeCompartment.current.of(themeExtension(theme))],
       }),
       parent: editorRef.current,
     });
@@ -26,7 +30,16 @@ export function useEditor() {
       view.destroy();
       viewRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: themeCompartment.current.reconfigure(themeExtension(theme)),
+    });
+  }, [theme]);
 
   const getContent = useCallback((): string => {
     const view = viewRef.current;
