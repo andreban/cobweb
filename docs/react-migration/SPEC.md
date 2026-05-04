@@ -129,7 +129,22 @@ export function createModels(): AppModels {
 
 ## Agent Tools (`src/agent/tools/`)
 
-Registered into the shared `ToolRegistry` from `AppModels` at startup, before any adapter is created. Tool implementations receive stable callbacks (not Model references) injected via a `wireTools(tools, editorHook, replHook)` call in `App` after the hooks are ready.
+Registered into the shared `ToolRegistry` from `AppModels` at startup, before any adapter is created. Tool implementations receive stable callbacks (not Model references) injected via `wireTools(tools, bindings)` in `App` after the hooks are ready.
+
+```ts
+// src/agent/wireTools.ts
+export interface ToolBindings {
+  getEditorContent(): string;
+  setEditorContent(code: string): void;
+  runCode(code: string): Promise<void>;
+  getReplHistory(): string[];
+  onData(handler: (data: Uint8Array) => void): () => void;
+}
+
+export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void;
+```
+
+`wireTools` registers each tool exactly once per `ToolRegistry` instance and updates the bindings on subsequent calls, so `<App>` can re-invoke it from a `useEffect` whose deps include `replHistory` (which changes on every output line) without re-registering the tools.
 
 ### `ReadEditorTool`
 - scope: `'read'`
@@ -138,16 +153,17 @@ Registered into the shared `ToolRegistry` from `AppModels` at startup, before an
 ### `WriteEditorTool`
 - scope: `'write'`, `requiresApproval: false`
 - Args: `{ code: string }`
-- Calls `editorHook.setContent(code)`.
+- Calls `bindings.setEditorContent(code)`.
 
 ### `RunCodeTool`
 - scope: `'write'`, `requiresApproval: true`
 - Args: `{ code?: string }` — if omitted, runs the current editor content.
-- Sends code to the REPL; resolves with REPL output collected up to a configurable timeout.
+- Sends code to the REPL via `bindings.runCode`; subscribes via `bindings.onData` and resolves with the collected REPL output once the device has been idle for `idleMs` (default 1 s), capped at `maxMs` (default 30 s).
 
 ### `ReadReplHistoryTool`
 - scope: `'read'`
-- Returns the last N lines of REPL output (buffered in `useReplConnection`).
+- Args: `{ lines?: number }` — defaults to 20.
+- Returns the last N lines of `bindings.getReplHistory()`, joined by newlines.
 
 ### Agent Config (`src/agent/config.ts`)
 

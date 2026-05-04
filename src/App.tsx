@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AgentProvider, ConversationPanel, INLINE_APPROVAL } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
@@ -17,15 +17,26 @@ import { useTheme } from './hooks/useTheme';
 import { createModels } from './models';
 import { createAdapter } from './providers/factory';
 import { CODING_AGENT } from './agent/config';
+import { wireTools } from './agent/wireTools';
 
 const models = createModels();
 
 export function App() {
-  const { connectionState, connect, disconnect, reset, runCode, send, onData } =
+  const { connectionState, connect, disconnect, reset, runCode, send, onData, replHistory } =
     useReplConnection();
   const { config } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
   const { editorRef, getContent, setContent } = useEditor(theme);
+
+  useEffect(() => {
+    wireTools(models.tools, {
+      getEditorContent: getContent,
+      setEditorContent: setContent,
+      runCode,
+      getReplHistory: () => replHistory,
+      onData,
+    });
+  }, [getContent, setContent, runCode, replHistory, onData]);
 
   const runner = useMemo(() => {
     if (!config) return null;
