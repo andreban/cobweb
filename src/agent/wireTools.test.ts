@@ -12,16 +12,18 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
     runCode: async () => ({stdout: '', stderr: ''}),
     getReplHistory: () => [],
     onData: () => () => {},
+    deviceFs: null,
     ...overrides,
   };
 }
 
 describe('wireTools', () => {
-  it('registers the five agent tools on first call', () => {
+  it('registers the agent tools on first call', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     const names = tools.getTools().map((t) => t.name).sort();
     expect(names).toEqual([
+      'list_device_files',
       'read_editor',
       'read_repl_history',
       'run_editor',
@@ -34,7 +36,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(5);
+    expect(tools.getTools()).toHaveLength(6);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
