@@ -220,12 +220,12 @@ No Model or hook imports. A "Settings" button in `<Toolbar>` opens it.
 <App>                              — holds AppModels in ref; calls hooks; wires tools
 ├── <AgentProvider runner={...}>   — from @mast-ai/react-ui; runner null when unconfigured
 │   ├── <Toolbar>                  — connect/disconnect/reset/run + settings button
-│   ├── <SplitPane vertical>
-│   │   ├── <SplitPane horizontal> — top half
-│   │   │   ├── <FileNavigator>
-│   │   │   └── <CodeEditor>
-│   │   └── <SplitPane horizontal> — bottom half
-│   │       ├── <ReplShell>
+│   ├── <SplitPane horizontal>     — FileNavigator | main area
+│   │   ├── <FileNavigator>        — collapsible left panel
+│   │   └── <SplitPane horizontal> — editor+repl | agent
+│   │       ├── <SplitPane vertical> — editor | repl
+│   │       │   ├── <CodeEditor>
+│   │       │   └── <ReplShell>
 │   │       └── <ConversationPanel> — from @mast-ai/react-ui
 │   ├── <StatusBar>
 │   └── <SettingsPanel>            — modal, controlled by isSettingsOpen state
@@ -308,13 +308,17 @@ Calls `window.showOpenFilePicker()` on click. No Model imports.
 Props: `orientation: 'horizontal' | 'vertical'`, `initialSize: number` (% for first pane), `children: [ReactNode, ReactNode]`.
 Divider position in `useState`; pointer events on the divider handle dragging.
 
+The three-column layout (FileNavigator | editor+repl | agent) is achieved by nesting two horizontal `<SplitPane>` instances. Collapsibility of `<FileNavigator>` is a separate concern handled by `<FileNavigator>` itself, not by `<SplitPane>`.
+
 ### `<Toolbar>`
 
 Props: `connectionState`, `onConnect`, `onDisconnect`, `onReset`, `onRun`, `onOpenSettings`, `isAgentConfigured: boolean`, `theme: 'light' | 'dark'`, `onToggleTheme: () => void`.
 
 ### `<StatusBar>`
 
-Props: `connectionState`, `isAgentConfigured: boolean`.
+Props: `connectionState`, `isAgentConfigured: boolean`, `leftOpen: boolean`, `replOpen: boolean`, `rightOpen: boolean`, `onToggleLeft: () => void`, `onToggleRepl: () => void`, `onToggleRight: () => void`.
+
+Panel toggle buttons (PanelLeft / PanelBottom / PanelRight icons from lucide-react) sit in the bottom-right of the bar, matching the Zed IDE convention. Active panels use `text-foreground`; collapsed panels use `text-muted-foreground`. Panel open/closed state lives in `<App>` and is passed down as props.
 
 ---
 
