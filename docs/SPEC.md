@@ -29,6 +29,7 @@ Wraps the Web Serial API and implements the MicroPython raw-REPL protocol.
 - **Reset:** sends Ctrl-D in normal mode or calls `port.close()` + re-open sequence.
 - **Output:** extends `EventTarget`; dispatches `'data'` events (`CustomEvent<Uint8Array>`) as bytes arrive from the device.
 - **Async coordination:** uses `AsyncBlockingQueue<Uint8Array>` from `src/Queues.ts` to serialise reads from the underlying `ReadableStream`.
+- **Write serialisation:** `send`, `sendRaw`, and `reset` are mutually exclusive end-to-end via an internal single-slot promise chain, so one caller's prologue cannot interleave with another's body in the underlying `WritableStream`. `disconnect` deliberately does not take this lock — it relies on `WritableStreamDefaultWriter.close()` to flush queued chunks.
 
 #### `CodeEditor`
 

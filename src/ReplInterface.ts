@@ -9,6 +9,11 @@ export class ReplInterface extends EventTarget {
   private writer: WritableStreamDefaultWriter<Uint8Array>;
   private reader: ReadableStreamDefaultReader<Uint8Array>;
   private encoder = new TextEncoder();
+  // Tail of the write-serialization chain. Public write methods (`send`,
+  // `sendRaw`, `reset`) chain off this so each runs to completion before the
+  // next begins, preventing one caller's prologue from interleaving with
+  // another's body in the underlying WritableStream queue.
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(private port: SerialPort) {
     super();
@@ -19,6 +24,20 @@ export class ReplInterface extends EventTarget {
     this.readLoop().catch((error) => {
       this.dispatchEvent(new CustomEvent('disconnect', {detail: {error}}));
     });
+  }
+
+  /**
+   * Runs `task` mutually exclusive with every other call routed through this
+   * method. Failures of one task don't break the chain — the next task still
+   * runs — but they do propagate to the caller of the failing task.
+   */
+  private runExclusive<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.writeChain.then(task);
+    this.writeChain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async readLoop() {
@@ -53,32 +72,38 @@ export class ReplInterface extends EventTarget {
     await this.port.close();
   }
 
-  async reset() {
-    // ctrl-C twice: interrupt any running program
-    await this.writer.write(Uint8Array.from([0x03, 0x03]));
+  reset() {
+    return this.runExclusive(async () => {
+      // ctrl-C twice: interrupt any running program
+      await this.writer.write(Uint8Array.from([0x03, 0x03]));
 
-    // Ctrl-A: enter raw REPL
-    await this.writer.write(Uint8Array.from([0x01]));
-    
-    //  ctrl-D: soft reset
-    await this.writer.write(Uint8Array.from([0x04]));
+      // Ctrl-A: enter raw REPL
+      await this.writer.write(Uint8Array.from([0x01]));
 
-    // ctrl+B: exit raw REPL
-    await this.writer.write(Uint8Array.from([0x02]));    
+      //  ctrl-D: soft reset
+      await this.writer.write(Uint8Array.from([0x04]));
+
+      // ctrl+B: exit raw REPL
+      await this.writer.write(Uint8Array.from([0x02]));
+    });
   }
 
-  async send(content: string) {
-    await this.writer.write(this.encoder.encode(content));
+  send(content: string) {
+    return this.runExclusive(async () => {
+      await this.writer.write(this.encoder.encode(content));
+    });
   }
 
-  async sendRaw(content: string) {
-    await this.writer.write(Uint8Array.from([0x03, 0x03]));
-    await this.writer.write(Uint8Array.from([0x01]));
-    for (const line of content.split('\n')) {
-      await this.writer.write(this.encoder.encode(line + '\r'));
-    }
-    await this.writer.write(Uint8Array.from([0x04]));
-    await this.writer.write(Uint8Array.from([0x02]));    
+  sendRaw(content: string) {
+    return this.runExclusive(async () => {
+      await this.writer.write(Uint8Array.from([0x03, 0x03]));
+      await this.writer.write(Uint8Array.from([0x01]));
+      for (const line of content.split('\n')) {
+        await this.writer.write(this.encoder.encode(line + '\r'));
+      }
+      await this.writer.write(Uint8Array.from([0x04]));
+      await this.writer.write(Uint8Array.from([0x02]));
+    });
   }
 
   static async connect(

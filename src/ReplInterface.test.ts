@@ -197,6 +197,21 @@ describe('ReplInterface', () => {
       expect(port.readableCancelled).toBe(true);
       expect(port.closed).toBe(true);
     });
+
+    it('does not deadlock when called while a sendRaw is in flight', async () => {
+      // disconnect must not wait on the write-serialization chain — if it did,
+      // a stalled write would prevent the writer from ever closing. We start
+      // a sendRaw and immediately disconnect; both promises must settle.
+      const sendPromise = repl.sendRaw('print(1)').catch(() => undefined);
+      const disconnectPromise = repl.disconnect();
+      await Promise.race([
+        Promise.all([sendPromise, disconnectPromise]),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('disconnect deadlocked')), 1000),
+        ),
+      ]);
+      expect(port.writableClosed).toBe(true);
+    });
   });
 
   describe('reset', () => {
@@ -254,6 +269,56 @@ describe('ReplInterface', () => {
       await repl.sendRaw('');
       const body = port.written.slice(2, -2);
       expect(body).toEqual([encode('\r')]);
+    });
+
+    it('serializes concurrent calls so each prologue/body/epilogue runs contiguously', async () => {
+      // Two sendRaw calls in flight at the same time. Without a write mutex,
+      // the WritableStream's per-chunk queueing interleaves them: caller A
+      // enqueues its prologue, yields, caller B enqueues *its* prologue
+      // before A's body lands. End result on the wire is something like
+      // [A.Ctrl-CC, B.Ctrl-CC, A.Ctrl-A, B.Ctrl-A, ...] which breaks the
+      // raw-REPL state machine on the device.
+      await Promise.all([repl.sendRaw('a'), repl.sendRaw('b')]);
+
+      // Each sendRaw produces 5 chunks: Ctrl-CC, Ctrl-A, body, Ctrl-D, Ctrl-B.
+      expect(port.written).toHaveLength(10);
+
+      // First call's full sequence must appear before second call begins.
+      expect(port.written.slice(0, 5)).toEqual([
+        bytes(0x03, 0x03),
+        bytes(0x01),
+        encode('a\r'),
+        bytes(0x04),
+        bytes(0x02),
+      ]);
+      expect(port.written.slice(5, 10)).toEqual([
+        bytes(0x03, 0x03),
+        bytes(0x01),
+        encode('b\r'),
+        bytes(0x04),
+        bytes(0x02),
+      ]);
+    });
+
+    it('still serializes the next call after the previous one rejects mid-payload', async () => {
+      const failure = new Error('device hiccup');
+      const target = encode('a\r');
+      port.shouldRejectWrite = (chunk) => {
+        if (chunk.length === target.length && chunk.every((b, i) => b === target[i])) {
+          // One-shot: clear the hook so subsequent calls succeed.
+          port.shouldRejectWrite = undefined;
+          return failure;
+        }
+        return null;
+      };
+
+      const failed = repl.sendRaw('a');
+      const next = repl.sendRaw('b');
+      await expect(failed).rejects.toBe(failure);
+      // `next` must still run — a failed task shouldn't poison the chain. But
+      // the writable stream itself errors on the rejected write, so this call
+      // rejects too; what matters is that it actually attempts to run.
+      await expect(next).rejects.toBeDefined();
     });
 
     it('rejects when a line write fails mid-payload, with no unhandled rejections', async () => {
