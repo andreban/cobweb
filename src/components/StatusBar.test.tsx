@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { StatusBar } from './StatusBar';
 
 const defaults = {
+  connectionState: 'disconnected' as const,
+  isAgentConfigured: true,
   leftOpen: true,
   replOpen: true,
   rightOpen: true,
@@ -49,5 +51,25 @@ describe('StatusBar', () => {
     expect(screen.getByTitle('Toggle file navigator')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTitle('Toggle REPL')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTitle('Toggle agent panel')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows Disconnected when connectionState is disconnected', () => {
+    render(<StatusBar {...defaults} connectionState="disconnected" />);
+    expect(screen.getByLabelText('Connection state')).toHaveTextContent('Disconnected');
+  });
+
+  it('shows Connected when connectionState is connected', () => {
+    render(<StatusBar {...defaults} connectionState="connected" />);
+    expect(screen.getByLabelText('Connection state')).toHaveTextContent('Connected');
+  });
+
+  it('shows agent not configured warning when isAgentConfigured is false', () => {
+    render(<StatusBar {...defaults} isAgentConfigured={false} />);
+    expect(screen.getByLabelText('Agent not configured')).toBeInTheDocument();
+  });
+
+  it('hides agent warning when isAgentConfigured is true', () => {
+    render(<StatusBar {...defaults} isAgentConfigured={true} />);
+    expect(screen.queryByLabelText('Agent not configured')).toBeNull();
   });
 });

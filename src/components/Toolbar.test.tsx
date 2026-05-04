@@ -12,8 +12,10 @@ const defaults = {
   onDisconnect: vi.fn(),
   onReset: vi.fn(),
   onRun: vi.fn(),
-  onOpenWorkspace: vi.fn(),
   onOpenSettings: vi.fn(),
+  isAgentConfigured: false,
+  theme: 'light' as const,
+  onToggleTheme: vi.fn(),
 };
 
 describe('Toolbar', () => {
@@ -60,5 +62,22 @@ describe('Toolbar', () => {
     render(<Toolbar {...defaults} onOpenSettings={onOpenSettings} />);
     await userEvent.click(screen.getByTitle('Settings'));
     expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it('calls onToggleTheme when theme toggle is clicked', async () => {
+    const onToggleTheme = vi.fn();
+    render(<Toolbar {...defaults} onToggleTheme={onToggleTheme} />);
+    await userEvent.click(screen.getByTitle('Toggle theme'));
+    expect(onToggleTheme).toHaveBeenCalledOnce();
+  });
+
+  it('renders moon icon when theme is light', () => {
+    render(<Toolbar {...defaults} theme="light" />);
+    expect(screen.getByTitle('Toggle theme').querySelector('svg')).toBeInTheDocument();
+  });
+
+  it('renders sun icon when theme is dark', () => {
+    render(<Toolbar {...defaults} theme="dark" />);
+    expect(screen.getByTitle('Toggle theme').querySelector('svg')).toBeInTheDocument();
   });
 });

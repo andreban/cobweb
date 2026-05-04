@@ -3,7 +3,11 @@
 
 import { PanelBottom, PanelLeft, PanelRight } from 'lucide-react';
 
+type ConnectionState = 'disconnected' | 'connected';
+
 interface StatusBarProps {
+  connectionState: ConnectionState;
+  isAgentConfigured: boolean;
   leftOpen: boolean;
   replOpen: boolean;
   rightOpen: boolean;
@@ -13,6 +17,8 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
+  connectionState,
+  isAgentConfigured,
   leftOpen,
   replOpen,
   rightOpen,
@@ -21,7 +27,17 @@ export function StatusBar({
   onToggleRight,
 }: StatusBarProps) {
   return (
-    <div className="flex items-center justify-end h-6 px-2 bg-muted border-t border-border shrink-0">
+    <div className="flex items-center justify-between h-6 px-2 bg-muted border-t border-border shrink-0">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span aria-label="Connection state">
+          {connectionState === 'connected' ? 'Connected' : 'Disconnected'}
+        </span>
+        {!isAgentConfigured && (
+          <span aria-label="Agent not configured" className="text-yellow-600 dark:text-yellow-400">
+            Agent not configured
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-1">
         <button
           onClick={onToggleLeft}
