@@ -24,6 +24,7 @@ describe('wireTools', () => {
     const names = tools.getTools().map((t) => t.name).sort();
     expect(names).toEqual([
       'list_device_files',
+      'read_device_file',
       'read_editor',
       'read_repl_history',
       'run_editor',
@@ -36,7 +37,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(6);
+    expect(tools.getTools()).toHaveLength(7);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
