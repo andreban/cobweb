@@ -3,11 +3,13 @@
 
 import type { ToolRegistry } from '@mast-ai/core';
 import type { RunResult } from '../ReplInterface';
+import type { DeviceFs } from '../DeviceFs';
 import { ReadEditorTool } from './tools/ReadEditorTool';
 import { WriteEditorTool } from './tools/WriteEditorTool';
 import { RunEditorTool } from './tools/RunEditorTool';
 import { RunSnippetTool } from './tools/RunSnippetTool';
 import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
+import { ListDeviceFilesTool } from './tools/ListDeviceFilesTool';
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -15,6 +17,7 @@ export interface ToolBindings {
   runCode(code: string): Promise<RunResult>;
   getReplHistory(): string[];
   onData(handler: (data: Uint8Array) => void): () => void;
+  deviceFs: DeviceFs | null;
 }
 
 const REGISTERED = new WeakSet<ToolRegistry>();
@@ -36,4 +39,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new RunEditorTool(get));
   tools.register(new RunSnippetTool(get));
   tools.register(new ReadReplHistoryTool(get));
+  tools.register(new ListDeviceFilesTool(get));
 }

@@ -12,6 +12,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
     runCode: async () => ({stdout: '', stderr: ''}),
     getReplHistory: () => [],
     onData: () => () => {},
+    deviceFs: null,
     ...overrides,
   };
 }

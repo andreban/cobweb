@@ -20,6 +20,7 @@ import { createModels } from './models';
 import { createAdapter } from './providers/factory';
 import { CODING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
+import { DeviceFs } from './DeviceFs';
 
 const models = createModels();
 
@@ -30,6 +31,11 @@ export function App() {
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
   const { editorRef, getContent, setContent } = useEditor(theme);
 
+  const deviceFs = useMemo(
+    () => (connectionState === 'connected' ? new DeviceFs(runCode) : null),
+    [connectionState, runCode],
+  );
+
   useEffect(() => {
     wireTools(models.tools, {
       getEditorContent: getContent,
@@ -37,8 +43,9 @@ export function App() {
       runCode,
       getReplHistory: () => replHistory,
       onData,
+      deviceFs,
     });
-  }, [getContent, setContent, runCode, replHistory, onData]);
+  }, [getContent, setContent, runCode, replHistory, onData, deviceFs]);
 
   const runner = useMemo(() => {
     if (!config) return null;
