@@ -13,9 +13,11 @@ npm install          # Install dependencies
 npm run dev          # Start Vite dev server (http://localhost:5173)
 npm run build        # Production build (output to dist/)
 npm run preview      # Preview production build locally
+npm run lint         # ESLint (TypeScript + React hooks rules)
+npm run format       # Prettier (auto-fix src/)
+npm run test         # Vitest (single run)
+npm run test:watch   # Vitest (watch mode)
 ```
-
-There are no test or lint scripts.
 
 ## Architecture
 
@@ -114,7 +116,7 @@ gh api graphql -f query='{
 ## Git Conventions
 
 - Always use `Edit` to modify existing files — never rewrite them wholesale with `Write`. Small diffs make reviews easier.
-- Always run `npm run build` before committing and fix any failures.
+- Always run `npm run build`, `npm run lint`, and `npm run test` before committing and fix any failures.
 - Always ask the user to manually test in the browser before committing. Never commit or open a pull request until the user has confirmed the test passed.
 - **Branch strategy:**
   1. Before starting work on an issue, check out `main` and pull the latest (`git checkout main && git pull`).
