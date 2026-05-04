@@ -1,12 +1,17 @@
 {
   "name": "web-cobra",
   "version": "0.1.0",
+  "type": "module",
   "description": "Micropython IDE on the Web",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "format": "prettier --write src",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "micropython",
@@ -47,10 +52,23 @@
     "xterm-addon-fit": "^0.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "happy-dom": "^20.9.0",
+    "prettier": "^3.8.3",
     "typescript": "^4.1.5",
-    "vite": "^8.0.10"
+    "typescript-eslint": "^8.59.1",
+    "vite": "^8.0.10",
+    "vitest": "^4.1.5"
   }
 }
