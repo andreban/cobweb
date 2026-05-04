@@ -96,6 +96,20 @@ describe('useReplConnection', () => {
     expect(result.current.replHistory).toContain('line2');
   });
 
+  it("transitions to 'disconnected' when the repl dispatches a 'disconnect' event", async () => {
+    const { result } = renderHook(() => useReplConnection());
+    await act(() => result.current.connect());
+    expect(result.current.connectionState).toBe('connected');
+
+    act(() => {
+      (mockRepl as unknown as EventTarget).dispatchEvent(
+        new CustomEvent('disconnect', { detail: { error: new Error('cable yanked') } }),
+      );
+    });
+
+    expect(result.current.connectionState).toBe('disconnected');
+  });
+
   it('onData returns unsubscribe that stops delivery', async () => {
     const { result } = renderHook(() => useReplConnection());
     await act(() => result.current.connect());

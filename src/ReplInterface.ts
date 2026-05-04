@@ -14,20 +14,37 @@ export class ReplInterface extends EventTarget {
     super();
     this.writer = port.writable.getWriter()
     this.reader = port.readable.getReader();
-    this.readLoop();
+    // Safety net: readLoop already catches its own errors, but if anything
+    // ever escapes, surface it instead of leaving an unhandled rejection.
+    this.readLoop().catch((error) => {
+      this.dispatchEvent(new CustomEvent('disconnect', {detail: {error}}));
+    });
   }
 
   private async readLoop() {
-    while (true) {
-      const {value, done} = await this.reader.read();
-      if (value) {
-        this.dispatchEvent(new CustomEvent('data', {detail: value}));
+    let error: unknown;
+    try {
+      while (true) {
+        const {value, done} = await this.reader.read();
+        if (value) {
+          this.dispatchEvent(new CustomEvent('data', {detail: value}));
+        }
+        if (done) {
+          break;
+        }
       }
-      if (done) {
+    } catch (err) {
+      error = err;
+    } finally {
+      try {
         this.reader.releaseLock();
-        break;
+      } catch {
+        // Already released or stream is in an error state.
       }
     }
+    this.dispatchEvent(
+      new CustomEvent('disconnect', error ? {detail: {error}} : undefined),
+    );
   }
 
   async disconnect() {

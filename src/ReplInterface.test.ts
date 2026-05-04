@@ -62,6 +62,14 @@ class FakeSerialPort {
     }
   }
 
+  errorReadable(reason: unknown) {
+    try {
+      this.readableController.error(reason);
+    } catch {
+      // Already closed or errored.
+    }
+  }
+
   async close() {
     this.closed = true;
   }
@@ -120,6 +128,52 @@ describe('ReplInterface', () => {
       port.inject([0x02, 0x03]);
       await allReceived;
       expect(seen).toEqual([bytes(0x01), bytes(0x02, 0x03)]);
+    });
+  });
+
+  describe('disconnect event', () => {
+    it('fires when the readable stream errors (e.g. cable unplug)', async () => {
+      const failure = new Error('device disconnected');
+      const event = await new Promise<CustomEvent<{error: unknown}>>((resolve) => {
+        repl.addEventListener(
+          'disconnect',
+          (e) => resolve(e as CustomEvent<{error: unknown}>),
+          {once: true},
+        );
+        port.errorReadable(failure);
+      });
+      expect(event.detail?.error).toBe(failure);
+    });
+
+    it('fires when the readable stream closes cleanly, with no error detail', async () => {
+      const event = await new Promise<CustomEvent<{error: unknown} | null>>((resolve) => {
+        repl.addEventListener(
+          'disconnect',
+          (e) => resolve(e as CustomEvent<{error: unknown} | null>),
+          {once: true},
+        );
+        port.endReadable();
+      });
+      expect(event.detail).toBeNull();
+    });
+
+    it('does not leave an unhandled rejection when the readable stream errors', async () => {
+      const failure = new Error('device disconnected');
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const seen = new Promise<void>((resolve) => {
+          repl.addEventListener('disconnect', () => resolve(), {once: true});
+        });
+        port.errorReadable(failure);
+        await seen;
+        // Let queued microtasks settle so any orphaned rejection surfaces.
+        await new Promise((r) => setTimeout(r, 0));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
     });
   });
 
