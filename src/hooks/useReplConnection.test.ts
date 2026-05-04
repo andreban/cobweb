@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useReplConnection } from './useReplConnection';
-import { ReplInterface } from '../ReplInterface';
+import { ReplDisconnectedError, ReplInterface } from '../ReplInterface';
 
 function makeMockRepl(): ReplInterface {
   const et = new EventTarget();
@@ -127,6 +127,44 @@ describe('useReplConnection', () => {
     });
 
     expect(result.current.connectionState).toBe('disconnected');
+  });
+
+  describe('post-disconnect tolerance', () => {
+    it('reset() swallows ReplDisconnectedError so click handlers see no rejection', async () => {
+      (mockRepl.reset as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new ReplDisconnectedError(),
+      );
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      await expect(result.current.reset()).resolves.toBeUndefined();
+    });
+
+    it('send() swallows ReplDisconnectedError', async () => {
+      (mockRepl.send as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new ReplDisconnectedError(),
+      );
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      await expect(result.current.send('x')).resolves.toBeUndefined();
+    });
+
+    it('disconnect() swallows ReplDisconnectedError', async () => {
+      (mockRepl.disconnect as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new ReplDisconnectedError(),
+      );
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      await act(() => result.current.disconnect());
+      expect(result.current.connectionState).toBe('disconnected');
+    });
+
+    it('reset() still propagates non-disconnect errors', async () => {
+      const boom = new Error('something else broke');
+      (mockRepl.reset as ReturnType<typeof vi.fn>).mockRejectedValueOnce(boom);
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      await expect(result.current.reset()).rejects.toBe(boom);
+    });
   });
 
   it('onData returns unsubscribe that stops delivery', async () => {
