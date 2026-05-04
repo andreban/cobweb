@@ -141,15 +141,12 @@ describe('ReplInterface', () => {
     // (raw mode), Ctrl-D (soft reset), Ctrl-B (exit raw mode).
     // See https://docs.micropython.org/en/latest/reference/repl.html.
 
-    // Pinned via `it.fails` until #44 lands. When the bug is fixed these tests
-    // will start passing, vitest will flag them as unexpected passes, and the
-    // bug-fix PR should convert them back to plain `it(...)`.
-    it.fails('begins with Ctrl-C twice (0x03 0x03), not XOFF', async () => {
+    it('begins with Ctrl-C twice (0x03 0x03), not XOFF', async () => {
       await repl.reset();
       expect(port.written[0]).toEqual(bytes(0x03, 0x03));
     });
 
-    it.fails('sends Ctrl-A then Ctrl-D then Ctrl-B', async () => {
+    it('sends Ctrl-A then Ctrl-D then Ctrl-B', async () => {
       await repl.reset();
       expect(port.written[1]).toEqual(bytes(0x01));
       expect(port.written[2]).toEqual(bytes(0x04));
@@ -163,8 +160,7 @@ describe('ReplInterface', () => {
   });
 
   describe('sendRaw', () => {
-    // Pinned via `it.fails` until #44 lands; see note in the `reset` block.
-    it.fails('opens with Ctrl-C twice and Ctrl-A', async () => {
+    it('opens with Ctrl-C twice and Ctrl-A', async () => {
       await repl.sendRaw('print(1)');
       expect(port.written[0]).toEqual(bytes(0x03, 0x03));
       expect(port.written[1]).toEqual(bytes(0x01));

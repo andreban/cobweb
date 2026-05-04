@@ -43,10 +43,10 @@ export class ReplInterface extends EventTarget {
   async reset() {
     console.log('>>><RESET>')
     // ctrl-C twice: interrupt any running program
-    await this.writer.write(Uint8Array.from([0x13, 0x03, 0x03]));
-    
+    await this.writer.write(Uint8Array.from([0x03, 0x03]));
+
     // Ctrl-A: enter raw REPL
-    await this.writer.write(Uint8Array.from([0x13, 0x01]));
+    await this.writer.write(Uint8Array.from([0x01]));
     
     //  ctrl-D: soft reset
     await this.writer.write(Uint8Array.from([0x04]));
@@ -62,8 +62,8 @@ export class ReplInterface extends EventTarget {
 
   async sendRaw(content: string) {
     console.log('>>>(raw): ', content);
-    await this.writer.write(Uint8Array.from([0x13, 0x03, 0x03]));
-    await this.writer.write(Uint8Array.from([0x13, 0x01]));
+    await this.writer.write(Uint8Array.from([0x03, 0x03]));
+    await this.writer.write(Uint8Array.from([0x01]));
     content.split('\n').forEach(
         async line => await this.writer.write(this.encoder.encode(line + '\r'))
     );
