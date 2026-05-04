@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from 'vitest';
-import { basename, dirname, join, normalise, validateName } from './devicePath';
+import { basename, dirname, escapePythonStr, join, normalise, validateName } from './devicePath';
 
 describe('normalise', () => {
   it('preserves a simple absolute path', () => {
@@ -106,6 +106,28 @@ describe('basename', () => {
 
   it('returns top-level entry', () => {
     expect(basename('/foo')).toBe('foo');
+  });
+});
+
+describe('escapePythonStr', () => {
+  it('passes plain ASCII through unchanged', () => {
+    expect(escapePythonStr('/foo/bar.py')).toBe('/foo/bar.py');
+  });
+
+  it('escapes backslashes', () => {
+    expect(escapePythonStr('a\\b')).toBe('a\\\\b');
+  });
+
+  it('escapes single quotes', () => {
+    expect(escapePythonStr("a'b")).toBe("a\\'b");
+  });
+
+  it('escapes both in the same string', () => {
+    expect(escapePythonStr("a\\b'c")).toBe("a\\\\b\\'c");
+  });
+
+  it('does not escape double quotes', () => {
+    expect(escapePythonStr('a"b')).toBe('a"b');
   });
 });
 
