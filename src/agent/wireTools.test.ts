@@ -17,18 +17,24 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
 }
 
 describe('wireTools', () => {
-  it('registers the four agent tools on first call', () => {
+  it('registers the five agent tools on first call', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     const names = tools.getTools().map((t) => t.name).sort();
-    expect(names).toEqual(['read_editor', 'read_repl_history', 'run_code', 'write_editor']);
+    expect(names).toEqual([
+      'read_editor',
+      'read_repl_history',
+      'run_editor',
+      'run_snippet',
+      'write_editor',
+    ]);
   });
 
   it('does not re-register tools when called again on the same registry', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(4);
+    expect(tools.getTools()).toHaveLength(5);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
