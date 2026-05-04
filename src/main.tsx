@@ -8,11 +8,12 @@ import '@mast-ai/react-ui/styles.css';
 import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
+import { ReplShell } from './components/ReplShell';
+import { useReplConnection } from './hooks/useReplConnection';
 
 function App() {
-  const [connectionState, setConnectionState] = useState<'disconnected' | 'connected'>(
-    'disconnected',
-  );
+  const { connectionState, connect, disconnect, reset, runCode, onData } =
+    useReplConnection();
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftSize, setLeftSize] = useState(20);
@@ -27,10 +28,10 @@ function App() {
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
       <Toolbar
         connectionState={connectionState}
-        onConnect={() => setConnectionState('connected')}
-        onDisconnect={() => setConnectionState('disconnected')}
-        onReset={() => {}}
-        onRun={() => {}}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        onReset={reset}
+        onRun={() => runCode('')}
         onOpenWorkspace={() => {}}
         onOpenSettings={() => {}}
       />
@@ -63,7 +64,7 @@ function App() {
                 >
                   {[
                     <div key="editor" style={{ padding: 8, background: '#fff', height: '100%' }}>CodeEditor</div>,
-                    <div key="repl" style={{ padding: 8, background: '#1e1e1e', color: '#fff', height: '100%' }}>ReplShell</div>,
+                    <ReplShell key="repl" onData={onData} />,
                   ]}
                 </SplitPane>,
                 <div key="agent" style={{ padding: 8, background: '#f9fafb', height: '100%' }}>ConversationPanel</div>,
