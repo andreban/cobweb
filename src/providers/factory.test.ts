@@ -1,3 +1,6 @@
+// Copyright 2026 Andre Cipriani Bandarra
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, it, expect } from 'vitest';
 import { createAdapter } from './factory';
 import { GoogleGenAIAdapter } from '@mast-ai/google-genai';

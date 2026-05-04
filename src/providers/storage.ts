@@ -1,3 +1,6 @@
+// Copyright 2026 Andre Cipriani Bandarra
+// SPDX-License-Identifier: Apache-2.0
+
 import type { ProviderConfig } from './types';
 
 const STORAGE_KEY = 'cobweb:provider-config';
