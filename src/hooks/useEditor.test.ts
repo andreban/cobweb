@@ -33,16 +33,24 @@ vi.mock('codemirror', () => {
   return { EditorView: EditorViewMock, basicSetup: [] };
 });
 
-vi.mock('@codemirror/state', () => ({
-  EditorState: { create: vi.fn().mockReturnValue({}) },
-}));
+vi.mock('@codemirror/state', () => {
+  function CompartmentMock(this: { of: () => unknown[]; reconfigure: () => unknown[] }) {
+    this.of = () => [];
+    this.reconfigure = () => [];
+  }
+  return {
+    EditorState: { create: vi.fn().mockReturnValue({}) },
+    Compartment: CompartmentMock,
+  };
+});
 
 vi.mock('@codemirror/lang-python', () => ({
   python: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('@codemirror/theme-one-dark', () => ({
-  oneDark: [],
+vi.mock('@catppuccin/codemirror', () => ({
+  catppuccinLatte: [],
+  catppuccinMocha: [],
 }));
 
 import { useEditor } from './useEditor';
@@ -55,20 +63,20 @@ beforeEach(() => {
 
 describe('useEditor', () => {
   it('returns editorRef, getContent, and setContent', () => {
-    const { result } = renderHook(() => useEditor());
+    const { result } = renderHook(() => useEditor('dark'));
     expect(result.current.editorRef).toBeDefined();
     expect(typeof result.current.getContent).toBe('function');
     expect(typeof result.current.setContent).toBe('function');
   });
 
   it('getContent returns empty string when view is not mounted (no DOM node)', () => {
-    const { result } = renderHook(() => useEditor());
+    const { result } = renderHook(() => useEditor('dark'));
     // editorRef.current is null by default — no EditorView is created
     expect(result.current.getContent()).toBe('');
   });
 
   it('setContent does nothing when view is not mounted', () => {
-    const { result } = renderHook(() => useEditor());
+    const { result } = renderHook(() => useEditor('dark'));
     act(() => result.current.setContent('code'));
     expect(mockDispatch).not.toHaveBeenCalled();
   });
@@ -78,7 +86,7 @@ describe('useEditor', () => {
     document.body.appendChild(div);
 
     const { unmount } = renderHook(() => {
-      const hook = useEditor();
+      const hook = useEditor('dark');
       (hook.editorRef as { current: HTMLDivElement | null }).current = div;
       return hook;
     });
@@ -98,7 +106,7 @@ describe('useEditor', () => {
 
     let hookResult: ReturnType<typeof useEditor>;
     const { unmount } = renderHook(() => {
-      hookResult = useEditor();
+      hookResult = useEditor('dark');
       (hookResult.editorRef as { current: HTMLDivElement | null }).current = div;
       return hookResult;
     });
@@ -120,7 +128,7 @@ describe('useEditor', () => {
 
     let hookResult: ReturnType<typeof useEditor>;
     const { unmount } = renderHook(() => {
-      hookResult = useEditor();
+      hookResult = useEditor('dark');
       (hookResult.editorRef as { current: HTMLDivElement | null }).current = div;
       return hookResult;
     });

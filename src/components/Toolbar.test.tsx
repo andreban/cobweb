@@ -14,8 +14,8 @@ const defaults = {
   onRun: vi.fn(),
   onOpenSettings: vi.fn(),
   isAgentConfigured: false,
-  theme: 'light' as const,
-  onToggleTheme: vi.fn(),
+  themePreference: 'light' as const,
+  onCycleTheme: vi.fn(),
 };
 
 describe('Toolbar', () => {
@@ -64,20 +64,19 @@ describe('Toolbar', () => {
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
-  it('calls onToggleTheme when theme toggle is clicked', async () => {
-    const onToggleTheme = vi.fn();
-    render(<Toolbar {...defaults} onToggleTheme={onToggleTheme} />);
-    await userEvent.click(screen.getByTitle('Toggle theme'));
-    expect(onToggleTheme).toHaveBeenCalledOnce();
+  it('calls onCycleTheme when theme button is clicked', async () => {
+    const onCycleTheme = vi.fn();
+    render(<Toolbar {...defaults} onCycleTheme={onCycleTheme} />);
+    await userEvent.click(screen.getByTitle(/Theme:/));
+    expect(onCycleTheme).toHaveBeenCalledOnce();
   });
 
-  it('renders moon icon when theme is light', () => {
-    render(<Toolbar {...defaults} theme="light" />);
-    expect(screen.getByTitle('Toggle theme').querySelector('svg')).toBeInTheDocument();
-  });
-
-  it('renders sun icon when theme is dark', () => {
-    render(<Toolbar {...defaults} theme="dark" />);
-    expect(screen.getByTitle('Toggle theme').querySelector('svg')).toBeInTheDocument();
+  it('reflects each theme preference in the button title', () => {
+    const { rerender } = render(<Toolbar {...defaults} themePreference="light" />);
+    expect(screen.getByTitle('Theme: light (click for dark)')).toBeInTheDocument();
+    rerender(<Toolbar {...defaults} themePreference="dark" />);
+    expect(screen.getByTitle('Theme: dark (click for system)')).toBeInTheDocument();
+    rerender(<Toolbar {...defaults} themePreference="system" />);
+    expect(screen.getByTitle('Theme: system (click for light)')).toBeInTheDocument();
   });
 });
