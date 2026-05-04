@@ -158,32 +158,7 @@
     </style>
   </head>
   <body>
-    <header class="header">
-      <h1>Cobweb MicroPython IDE</h1>
-    </header>
-    <div class="top-toolbar">
-      <div class="buttons">
-        <button id="connect" class="button">Connect</button>
-        <button id="disconnect" disabled class="button">Disconnect</button>
-        <button id="reset" disabled class="button">Reset</button>
-        <button id="run" disabled class="button">Run</button>
-      </div>
-    </div>
-
-    <div class="left-toolbar">
-    </div>
-
-    <split-pane class="center-panel" orientation="vertical" startPaneInitialSize="66">
-      <split-pane slot="start-pane" orientation="horizontal" startPaneInitialSize="20">
-        <file-navigator id="filenavigator" slot="start-pane"></file-navigator>
-        <div slot="end-pane" class="editor" id="editor"></div>
-      </split-pane>
-      <repl-shell slot="end-pane" class="editor" id="repl"></repl-shell>
-    </split-pane>
-
-    <div class="bottom-toolbar">
-      <div id="status">Disconnected</div>
-    </div>
+    <div id="root"></div>
   </body>
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="/src/main.tsx"></script>
 </html>
