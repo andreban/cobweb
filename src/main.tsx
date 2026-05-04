@@ -9,11 +9,14 @@ import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ReplShell } from './components/ReplShell';
+import { CodeEditor } from './components/CodeEditor';
 import { useReplConnection } from './hooks/useReplConnection';
+import { useEditor } from './hooks/useEditor';
 
 function App() {
   const { connectionState, connect, disconnect, reset, runCode, send, onData } =
     useReplConnection();
+  const { editorRef, getContent } = useEditor();
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftSize, setLeftSize] = useState(20);
@@ -31,7 +34,7 @@ function App() {
         onConnect={connect}
         onDisconnect={disconnect}
         onReset={reset}
-        onRun={() => runCode('')}
+        onRun={() => runCode(getContent())}
         onOpenWorkspace={() => {}}
         onOpenSettings={() => {}}
       />
@@ -63,7 +66,7 @@ function App() {
                   collapsed={!replOpen}
                 >
                   {[
-                    <div key="editor" style={{ padding: 8, background: '#fff', height: '100%' }}>CodeEditor</div>,
+                    <CodeEditor key="editor" editorRef={editorRef} />,
                     <ReplShell key="repl" onData={onData} onInput={send} />,
                   ]}
                 </SplitPane>,
