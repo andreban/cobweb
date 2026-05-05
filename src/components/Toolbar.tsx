@@ -48,7 +48,10 @@ export function Toolbar({
 
   return (
     <div className="flex items-center gap-2 h-10 px-3 bg-muted border-b border-border shrink-0">
-      <span className="text-sm font-semibold mr-2">Cobweb</span>
+      <div className="flex items-center gap-1.5 mr-2">
+        <img src="/logo.svg" alt="" width="20" height="20" />
+        <span className="text-sm font-semibold">Cobweb</span>
+      </div>
 
       <div className="flex items-center gap-1">
         {connected ? (

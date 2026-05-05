@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .web { fill: none; stroke: #1a1a1a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .chip { fill: #1a1a1a; }
+    .pin1 { fill: #b0c4de; }
+    @media (prefers-color-scheme: dark) {
+      .web { stroke: #f0f0f0; }
+      .chip { fill: #f0f0f0; }
+      .pin1 { fill: #1a1a1a; }
+    }
+  </style>
+  <g class="web">
+    <path d="M32 32 L32 4 M32 32 L51.8 12.2 M32 32 L60 32 M32 32 L51.8 51.8 M32 32 L32 60 M32 32 L12.2 51.8 M32 32 L4 32 M32 32 L12.2 12.2"/>
+    <polygon points="32,4 51.8,12.2 60,32 51.8,51.8 32,60 12.2,51.8 4,32 12.2,12.2"/>
+    <polygon points="32,16 43.3,20.7 48,32 43.3,43.3 32,48 20.7,43.3 16,32 20.7,20.7"/>
+  </g>
+  <g class="chip">
+    <rect x="27.8" y="23" width="1.4" height="2"/>
+    <rect x="31.3" y="23" width="1.4" height="2"/>
+    <rect x="34.8" y="23" width="1.4" height="2"/>
+    <rect x="39" y="27.8" width="2" height="1.4"/>
+    <rect x="39" y="31.3" width="2" height="1.4"/>
+    <rect x="39" y="34.8" width="2" height="1.4"/>
+    <rect x="27.8" y="39" width="1.4" height="2"/>
+    <rect x="31.3" y="39" width="1.4" height="2"/>
+    <rect x="34.8" y="39" width="1.4" height="2"/>
+    <rect x="23" y="27.8" width="2" height="1.4"/>
+    <rect x="23" y="31.3" width="2" height="1.4"/>
+    <rect x="23" y="34.8" width="2" height="1.4"/>
+    <rect x="25" y="25" width="14" height="14" rx="1.5"/>
+  </g>
+  <circle class="pin1" cx="28" cy="28" r="1.2"/>
+</svg>

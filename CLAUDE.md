@@ -43,7 +43,7 @@ microcontroller → ReplInterface ('data' event) → ReplShell (xterm.js)
 
 **UI layout** (`index.html`): three-pane split — FileNavigator (left) | CodeEditor (top-right) | ReplShell (bottom-right), composed with nested `<split-pane>` elements.
 
-Static assets (`manifest.json`, `images/`, `sw.js`, `404.html`) live in `public/` — Vite copies them to `dist/` on build.
+Static assets (`manifest.json`, `favicon.svg`, `logo.svg`, `images/`, `404.html`) live in `public/` — Vite copies them to `dist/` on build.
 
 ## Docs
 
