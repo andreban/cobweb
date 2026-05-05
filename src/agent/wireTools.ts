@@ -11,6 +11,7 @@ import { RunSnippetTool } from './tools/RunSnippetTool';
 import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
 import { ListDeviceFilesTool } from './tools/ListDeviceFilesTool';
 import { ReadDeviceFileTool } from './tools/ReadDeviceFileTool';
+import { WriteDeviceFileTool } from './tools/WriteDeviceFileTool';
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -42,4 +43,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new ReadReplHistoryTool(get));
   tools.register(new ListDeviceFilesTool(get));
   tools.register(new ReadDeviceFileTool(get));
+  tools.register(new WriteDeviceFileTool(get));
 }
