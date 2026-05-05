@@ -12,11 +12,30 @@ export type EditorOrigin =
   | { kind: 'local'; handle: FileSystemFileHandle; name: string }
   | { kind: 'device'; path: string };
 
+const UNTITLED_KEY = 'cobweb:editor:untitled';
+
+function writeUntitled(content: string): void {
+  try {
+    localStorage.setItem(UNTITLED_KEY, content);
+  } catch {
+    // QuotaExceededError or similar — silently drop the in-flight save.
+  }
+}
+
+function clearUntitled(): void {
+  try {
+    localStorage.removeItem(UNTITLED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function useEditor(theme: 'light' | 'dark') {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const themeCompartment = useRef(new Compartment());
   const snapshotRef = useRef<string>('');
+  const originRef = useRef<EditorOrigin>({ kind: 'untitled' });
   const [origin, setOrigin] = useState<EditorOrigin>({ kind: 'untitled' });
   const [isModified, setIsModified] = useState(false);
 
@@ -30,6 +49,9 @@ export function useEditor(theme: 'light' | 'dark') {
       if (!update.docChanged) return;
       const current = update.state.doc.sliceString(0);
       setIsModified(current !== snapshotRef.current);
+      if (originRef.current.kind === 'untitled') {
+        writeUntitled(current);
+      }
     });
 
     const fillHeight = EditorView.theme({
@@ -50,6 +72,14 @@ export function useEditor(theme: 'light' | 'dark') {
       parent: editorRef.current,
     });
     viewRef.current = view;
+
+    const stored = localStorage.getItem(UNTITLED_KEY);
+    if (stored !== null && stored !== '') {
+      snapshotRef.current = stored;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: stored },
+      });
+    }
 
     return () => {
       view.destroy();
@@ -82,6 +112,7 @@ export function useEditor(theme: 'light' | 'dark') {
 
   const setOriginAndContent = useCallback((newOrigin: EditorOrigin, content: string): void => {
     snapshotRef.current = content;
+    originRef.current = newOrigin;
     setOrigin(newOrigin);
     const view = viewRef.current;
     if (view) {
@@ -90,6 +121,11 @@ export function useEditor(theme: 'light' | 'dark') {
       });
     }
     setIsModified(false);
+    if (newOrigin.kind === 'untitled') {
+      writeUntitled(content);
+    } else {
+      clearUntitled();
+    }
   }, []);
 
   return { editorRef, getContent, setContent, origin, setOriginAndContent, isModified };
