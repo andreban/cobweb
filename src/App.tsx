@@ -10,6 +10,7 @@ import { Toolbar } from './components/Toolbar';
 import { ReplShell } from './components/ReplShell';
 import { CodeEditor } from './components/CodeEditor';
 import { FileNavigator } from './components/FileNavigator';
+import { DeviceFileNavigator } from './components/DeviceFileNavigator';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AgentPanel } from './components/AgentPanel';
 import { useReplConnection } from './hooks/useReplConnection';
@@ -86,6 +87,7 @@ export function App() {
   const [rightSize, setRightSize] = useState(35);
   const [replOpen, setReplOpen] = useState(true);
   const [replSize, setReplSize] = useState(40);
+  const [leftSplitSize, setLeftSplitSize] = useState(50);
 
   return (
     <AgentProvider
@@ -129,7 +131,18 @@ export function App() {
             collapsed={!leftOpen}
           >
             {[
-              <FileNavigator key="files" onFileSelected={setContent} />,
+              <SplitPane
+                key="left"
+                orientation="vertical"
+                initialSize={leftSplitSize}
+                size={leftSplitSize}
+                onSizeChange={setLeftSplitSize}
+              >
+                {[
+                  <FileNavigator key="files" onFileSelected={setContent} />,
+                  <DeviceFileNavigator key="device-files" />,
+                ]}
+              </SplitPane>,
               <SplitPane
                 key="main"
                 orientation="horizontal"
