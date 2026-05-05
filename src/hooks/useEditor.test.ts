@@ -4,20 +4,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const { mockDispatch, mockDestroy, mockDocState } = vi.hoisted(() => {
+const { mockDispatch, mockDestroy, mockDocState, capturedListeners } = vi.hoisted(() => {
   const mockDispatch = vi.fn();
   const mockDestroy = vi.fn();
   const mockDocState = { length: 0, content: '' };
-  return { mockDispatch, mockDestroy, mockDocState };
+  type Update = { docChanged: boolean; state: { doc: { sliceString: () => string } } };
+  const capturedListeners: Array<(update: Update) => void> = [];
+  return { mockDispatch, mockDestroy, mockDocState, capturedListeners };
 });
 
 vi.mock('codemirror', () => {
+  type Transaction = {
+    changes?: { from: number; to: number; insert: string };
+    effects?: unknown;
+  };
   function EditorViewMock(this: {
-    dispatch: typeof mockDispatch;
+    dispatch: (t: Transaction) => void;
     destroy: typeof mockDestroy;
     state: { doc: { length: number; sliceString: () => string } };
   }) {
-    this.dispatch = mockDispatch;
+    this.dispatch = (transaction: Transaction) => {
+      mockDispatch(transaction);
+      if (transaction.changes) {
+        const previous = mockDocState.content;
+        mockDocState.content = transaction.changes.insert;
+        mockDocState.length = transaction.changes.insert.length;
+        if (previous !== mockDocState.content) {
+          capturedListeners.forEach((listener) =>
+            listener({
+              docChanged: true,
+              state: { doc: { sliceString: () => mockDocState.content } },
+            }),
+          );
+        }
+      }
+    };
     this.destroy = mockDestroy;
     Object.defineProperty(this, 'state', {
       get: () => ({
@@ -30,6 +51,12 @@ vi.mock('codemirror', () => {
       }),
     });
   }
+  (EditorViewMock as unknown as { updateListener: { of: (fn: unknown) => unknown } }).updateListener = {
+    of: (fn) => {
+      capturedListeners.push(fn as (update: never) => void);
+      return [];
+    },
+  };
   return { EditorView: EditorViewMock, basicSetup: [] };
 });
 
@@ -53,13 +80,35 @@ vi.mock('@catppuccin/codemirror', () => ({
   catppuccinMocha: [],
 }));
 
-import { useEditor } from './useEditor';
+import { useEditor, type EditorOrigin } from './useEditor';
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDocState.length = 0;
   mockDocState.content = '';
+  capturedListeners.length = 0;
 });
+
+function mountedHook() {
+  const div = document.createElement('div');
+  document.body.appendChild(div);
+  let hookResult: ReturnType<typeof useEditor>;
+  const rendered = renderHook(() => {
+    hookResult = useEditor('dark');
+    (hookResult.editorRef as { current: HTMLDivElement | null }).current = div;
+    return hookResult;
+  });
+  return {
+    ...rendered,
+    get current() {
+      return hookResult!;
+    },
+    cleanup: () => {
+      rendered.unmount();
+      document.body.removeChild(div);
+    },
+  };
+}
 
 describe('useEditor', () => {
   it('returns editorRef, getContent, and setContent', () => {
@@ -101,41 +150,105 @@ describe('useEditor', () => {
 
   it('setContent dispatches a replace-all transaction', () => {
     mockDocState.length = 10;
-    const div = document.createElement('div');
-    document.body.appendChild(div);
+    const handle = mountedHook();
 
-    let hookResult: ReturnType<typeof useEditor>;
-    const { unmount } = renderHook(() => {
-      hookResult = useEditor('dark');
-      (hookResult.editorRef as { current: HTMLDivElement | null }).current = div;
-      return hookResult;
-    });
-
-    act(() => hookResult!.setContent('new code'));
+    act(() => handle.current.setContent('new code'));
     expect(mockDispatch).toHaveBeenCalledWith({
       changes: { from: 0, to: 10, insert: 'new code' },
     });
 
-    unmount();
-    document.body.removeChild(div);
+    handle.cleanup();
   });
 
   it('getContent returns doc content from the mounted view', () => {
     mockDocState.content = 'print("hello")';
     mockDocState.length = 14;
-    const div = document.createElement('div');
-    document.body.appendChild(div);
+    const handle = mountedHook();
 
-    let hookResult: ReturnType<typeof useEditor>;
-    const { unmount } = renderHook(() => {
-      hookResult = useEditor('dark');
-      (hookResult.editorRef as { current: HTMLDivElement | null }).current = div;
-      return hookResult;
+    expect(handle.current.getContent()).toBe('print("hello")');
+
+    handle.cleanup();
+  });
+});
+
+describe('useEditor — origin tracking', () => {
+  it('starts with untitled origin and isModified false', () => {
+    const handle = mountedHook();
+    expect(handle.current.origin).toEqual({ kind: 'untitled' });
+    expect(handle.current.isModified).toBe(false);
+    handle.cleanup();
+  });
+
+  it('transitions untitled → local via setOriginAndContent', () => {
+    const handle = mountedHook();
+    const fileHandle = {} as FileSystemFileHandle;
+    const localOrigin: EditorOrigin = { kind: 'local', handle: fileHandle, name: 'main.py' };
+
+    act(() => handle.current.setOriginAndContent(localOrigin, 'print("local")'));
+
+    expect(handle.current.origin).toEqual(localOrigin);
+    expect(handle.current.isModified).toBe(false);
+    expect(mockDispatch).toHaveBeenCalledWith({
+      changes: { from: 0, to: 0, insert: 'print("local")' },
     });
+    handle.cleanup();
+  });
 
-    expect(hookResult!.getContent()).toBe('print("hello")');
+  it('transitions untitled → device via setOriginAndContent', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
 
-    unmount();
-    document.body.removeChild(div);
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'print("device")'));
+
+    expect(handle.current.origin).toEqual(deviceOrigin);
+    expect(handle.current.isModified).toBe(false);
+    handle.cleanup();
+  });
+
+  it('isModified becomes true when content changes after open', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'original'));
+    expect(handle.current.isModified).toBe(false);
+
+    act(() => handle.current.setContent('edited'));
+    expect(handle.current.isModified).toBe(true);
+
+    handle.cleanup();
+  });
+
+  it('modify-then-save resets isModified', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+    // Open
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'original'));
+    expect(handle.current.isModified).toBe(false);
+
+    // Modify
+    act(() => handle.current.setContent('edited'));
+    expect(handle.current.isModified).toBe(true);
+
+    // Save: caller writes the current content back and re-snapshots via setOriginAndContent.
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'edited'));
+    expect(handle.current.isModified).toBe(false);
+    expect(handle.current.origin).toEqual(deviceOrigin);
+
+    handle.cleanup();
+  });
+
+  it('isModified flips back to false when edits are reverted to the snapshot', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'snapshot'));
+    act(() => handle.current.setContent('changed'));
+    expect(handle.current.isModified).toBe(true);
+
+    act(() => handle.current.setContent('snapshot'));
+    expect(handle.current.isModified).toBe(false);
+
+    handle.cleanup();
   });
 });
