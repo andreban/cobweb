@@ -88,6 +88,7 @@ beforeEach(() => {
   mockDocState.length = 0;
   mockDocState.content = '';
   capturedListeners.length = 0;
+  localStorage.clear();
 });
 
 function mountedHook() {
@@ -250,6 +251,138 @@ describe('useEditor — origin tracking', () => {
     act(() => handle.current.setContent('snapshot'));
     expect(handle.current.isModified).toBe(false);
 
+    handle.cleanup();
+  });
+});
+
+describe('useEditor — untitled buffer persistence', () => {
+  const KEY = 'cobweb:editor:untitled';
+
+  it('restores stored content on mount and keeps isModified false', () => {
+    localStorage.setItem(KEY, 'print("restored")');
+    const handle = mountedHook();
+
+    expect(mockDispatch).toHaveBeenCalledWith({
+      changes: { from: 0, to: 0, insert: 'print("restored")' },
+    });
+    expect(handle.current.getContent()).toBe('print("restored")');
+    expect(handle.current.origin).toEqual({ kind: 'untitled' });
+    expect(handle.current.isModified).toBe(false);
+
+    handle.cleanup();
+  });
+
+  it('does not dispatch a restore when the key is missing', () => {
+    const handle = mountedHook();
+
+    const restoreCalls = mockDispatch.mock.calls.filter(
+      ([t]) => (t as { changes?: unknown }).changes !== undefined,
+    );
+    expect(restoreCalls).toHaveLength(0);
+    expect(handle.current.getContent()).toBe('');
+
+    handle.cleanup();
+  });
+
+  it('skips restore when stored value is the empty string', () => {
+    localStorage.setItem(KEY, '');
+    const handle = mountedHook();
+
+    const restoreCalls = mockDispatch.mock.calls.filter(
+      ([t]) => (t as { changes?: unknown }).changes !== undefined,
+    );
+    expect(restoreCalls).toHaveLength(0);
+
+    handle.cleanup();
+  });
+
+  it('writes to localStorage on edits while origin is untitled', () => {
+    const handle = mountedHook();
+
+    act(() => handle.current.setContent('print("new")'));
+    expect(localStorage.getItem(KEY)).toBe('print("new")');
+
+    act(() => handle.current.setContent('print("again")'));
+    expect(localStorage.getItem(KEY)).toBe('print("again")');
+
+    handle.cleanup();
+  });
+
+  it('does not write to localStorage on edits while origin is local', () => {
+    const handle = mountedHook();
+    const fileHandle = {} as FileSystemFileHandle;
+    const localOrigin: EditorOrigin = { kind: 'local', handle: fileHandle, name: 'main.py' };
+
+    act(() => handle.current.setOriginAndContent(localOrigin, 'print("local")'));
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    act(() => handle.current.setContent('edited'));
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    handle.cleanup();
+  });
+
+  it('does not write to localStorage on edits while origin is device', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'print("device")'));
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    act(() => handle.current.setContent('edited'));
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    handle.cleanup();
+  });
+
+  it('clears localStorage when transitioning from untitled to local', () => {
+    localStorage.setItem(KEY, 'old draft');
+    const handle = mountedHook();
+    expect(localStorage.getItem(KEY)).toBe('old draft');
+
+    const fileHandle = {} as FileSystemFileHandle;
+    const localOrigin: EditorOrigin = { kind: 'local', handle: fileHandle, name: 'main.py' };
+    act(() => handle.current.setOriginAndContent(localOrigin, 'file content'));
+
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    handle.cleanup();
+  });
+
+  it('clears localStorage when transitioning from untitled to device', () => {
+    localStorage.setItem(KEY, 'old draft');
+    const handle = mountedHook();
+
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'device content'));
+
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    handle.cleanup();
+  });
+
+  it('writes new content when setOriginAndContent moves back to untitled', () => {
+    const handle = mountedHook();
+    const deviceOrigin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+    act(() => handle.current.setOriginAndContent(deviceOrigin, 'device content'));
+    expect(localStorage.getItem(KEY)).toBeNull();
+
+    act(() => handle.current.setOriginAndContent({ kind: 'untitled' }, 'fresh draft'));
+    expect(localStorage.getItem(KEY)).toBe('fresh draft');
+
+    handle.cleanup();
+  });
+
+  it('swallows QuotaExceededError thrown by localStorage.setItem', () => {
+    const handle = mountedHook();
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+
+    expect(() => act(() => handle.current.setContent('overflow'))).not.toThrow();
+
+    setItemSpy.mockRestore();
     handle.cleanup();
   });
 });
