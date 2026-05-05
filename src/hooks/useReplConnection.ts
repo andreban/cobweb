@@ -98,6 +98,13 @@ export function useReplConnection() {
     return replRef.current.sendRaw(code);
   }, []);
 
+  const sendRaw = useCallback(async (code: string): Promise<RunResult> => {
+    if (!replRef.current) {
+      throw new Error('Not connected');
+    }
+    return replRef.current.sendRaw(code);
+  }, []);
+
   const send = useCallback(async (data: string) => {
     if (replRef.current) {
       try {
@@ -113,5 +120,15 @@ export function useReplConnection() {
     return () => handlersRef.current.delete(handler);
   }, []);
 
-  return { connectionState, connect, disconnect, reset, runCode, send, replHistory, onData };
+  return {
+    connectionState,
+    connect,
+    disconnect,
+    reset,
+    runCode,
+    sendRaw,
+    send,
+    replHistory,
+    onData,
+  };
 }

@@ -82,6 +82,32 @@ describe('useReplConnection', () => {
     await expect(result.current.runCode('print("hi")')).rejects.toThrow(/not connected/i);
   });
 
+  it('sendRaw() calls repl.sendRaw() with the given code', async () => {
+    const { result } = renderHook(() => useReplConnection());
+    await act(() => result.current.connect());
+    await act(() => result.current.sendRaw('import os'));
+    expect(mockRepl.sendRaw).toHaveBeenCalledWith('import os');
+  });
+
+  it("sendRaw() resolves with the device's stdout/stderr", async () => {
+    (mockRepl.sendRaw as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      stdout: '["main.py"]',
+      stderr: '',
+    });
+    const { result } = renderHook(() => useReplConnection());
+    await act(() => result.current.connect());
+    let runResult: {stdout: string; stderr: string} | undefined;
+    await act(async () => {
+      runResult = await result.current.sendRaw('import os; print(os.listdir("/"))');
+    });
+    expect(runResult).toEqual({stdout: '["main.py"]', stderr: ''});
+  });
+
+  it('sendRaw() rejects when not connected', async () => {
+    const { result } = renderHook(() => useReplConnection());
+    await expect(result.current.sendRaw('import os')).rejects.toThrow(/not connected/i);
+  });
+
   it('onData handler receives data dispatched by repl', async () => {
     const { result } = renderHook(() => useReplConnection());
     await act(() => result.current.connect());
