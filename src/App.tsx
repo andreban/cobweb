@@ -25,7 +25,7 @@ import { CODING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
 import { DeviceFs } from './DeviceFs';
 import { saveEditor } from './lib/saveEditor';
-import { join } from './lib/devicePath';
+import { dirname, join } from './lib/devicePath';
 
 const models = createModels();
 
@@ -42,6 +42,7 @@ export function App() {
     readBytes: deviceReadBytes,
     writeText: deviceWriteText,
     mkdir: deviceMkdir,
+    rename: deviceRename,
   } = deviceFsHook;
 
   const handleCreateDeviceFile = useCallback(
@@ -56,6 +57,13 @@ export function App() {
       await deviceMkdir(join(parentPath, name));
     },
     [deviceMkdir],
+  );
+
+  const handleRenameDeviceEntry = useCallback(
+    async (path: string, newName: string) => {
+      await deviceRename(path, join(dirname(path), newName));
+    },
+    [deviceRename],
   );
 
   const deviceFs = useMemo(
@@ -257,6 +265,7 @@ export function App() {
                     }}
                     onCreateFile={handleCreateDeviceFile}
                     onCreateDir={handleCreateDeviceDir}
+                    onRename={handleRenameDeviceEntry}
                   />,
                 ]}
               </SplitPane>,

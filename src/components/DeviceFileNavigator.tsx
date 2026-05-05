@@ -8,6 +8,7 @@ import {
   Folder,
   FolderPlus,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ interface DeviceFileNavigatorProps {
   onOpenFile: (path: string) => void;
   onCreateFile: (parentPath: string, name: string) => Promise<void>;
   onCreateDir: (parentPath: string, name: string) => Promise<void>;
+  onRename: (path: string, newName: string) => Promise<void>;
 }
 
 export function DeviceFileNavigator({
@@ -40,13 +42,14 @@ export function DeviceFileNavigator({
   onOpenFile,
   onCreateFile,
   onCreateDir,
+  onRename,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
+  const [renaming, setRenaming] = useState<{ path: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    path: string;
-    expanded: boolean;
+    entry: DeviceTreeEntry;
   } | null>(null);
 
   useEffect(() => {
@@ -65,19 +68,23 @@ export function DeviceFileNavigator({
     };
   }, [contextMenu]);
 
-  // Drop the inline create input if the device disconnects mid-edit; the
-  // target path becomes unreachable and the input would silently no-op.
-  // Uses the "adjust state during render" pattern to avoid an effect-driven
+  // Drop any inline edit if the device disconnects mid-edit; the target
+  // path becomes unreachable and the input would silently no-op. Uses the
+  // "adjust state during render" pattern to avoid an effect-driven
   // cascading render.
   const [prevIsAvailable, setPrevIsAvailable] = useState(isAvailable);
   if (prevIsAvailable !== isAvailable) {
     setPrevIsAvailable(isAvailable);
-    if (!isAvailable && creating !== null) setCreating(null);
+    if (!isAvailable) {
+      if (creating !== null) setCreating(null);
+      if (renaming !== null) setRenaming(null);
+    }
   }
 
   const startCreate = (parentPath: string, kind: CreateKind, expanded: boolean) => {
     if (!expanded) onExpand(parentPath);
     setCreating({ path: parentPath, kind });
+    setRenaming(null);
     setContextMenu(null);
   };
 
@@ -92,14 +99,23 @@ export function DeviceFileNavigator({
     setCreating(null);
   };
 
-  const openContextMenu = (
-    e: ReactMouseEvent,
-    path: string,
-    expanded: boolean,
-  ) => {
+  const startRename = (path: string) => {
+    setRenaming({ path });
+    setCreating(null);
+    setContextMenu(null);
+  };
+
+  const cancelRename = () => setRenaming(null);
+
+  const submitRename = async (path: string, newName: string) => {
+    await onRename(path, newName);
+    setRenaming(null);
+  };
+
+  const openContextMenu = (e: ReactMouseEvent, entry: DeviceTreeEntry) => {
     e.preventDefault();
     e.nativeEvent.stopImmediatePropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, path, expanded });
+    setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
   return (
@@ -139,6 +155,10 @@ export function DeviceFileNavigator({
             onStartCreate={startCreate}
             onCancelCreate={cancelCreate}
             onSubmitCreate={submitCreate}
+            renaming={renaming}
+            onStartRename={startRename}
+            onCancelRename={cancelRename}
+            onSubmitRename={submitRename}
             onContextMenu={openContextMenu}
           />
         )}
@@ -147,16 +167,7 @@ export function DeviceFileNavigator({
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={[
-            {
-              label: 'New file',
-              onClick: () => startCreate(contextMenu.path, 'file', contextMenu.expanded),
-            },
-            {
-              label: 'New folder',
-              onClick: () => startCreate(contextMenu.path, 'dir', contextMenu.expanded),
-            },
-          ]}
+          items={buildContextMenuItems(contextMenu.entry, startCreate, startRename)}
         />
       )}
     </div>
@@ -173,7 +184,11 @@ interface TreeRowProps {
   onStartCreate: (parentPath: string, kind: CreateKind, expanded: boolean) => void;
   onCancelCreate: () => void;
   onSubmitCreate: (parentPath: string, kind: CreateKind, name: string) => Promise<void>;
-  onContextMenu: (e: ReactMouseEvent, path: string, expanded: boolean) => void;
+  renaming: { path: string } | null;
+  onStartRename: (path: string) => void;
+  onCancelRename: () => void;
+  onSubmitRename: (path: string, newName: string) => Promise<void>;
+  onContextMenu: (e: ReactMouseEvent, entry: DeviceTreeEntry) => void;
 }
 
 function TreeRow({
@@ -186,53 +201,81 @@ function TreeRow({
   onStartCreate,
   onCancelCreate,
   onSubmitCreate,
+  renaming,
+  onStartRename,
+  onCancelRename,
+  onSubmitRename,
   onContextMenu,
 }: TreeRowProps) {
   const indent = 8 + depth * 12;
+  const isRenaming = renaming?.path === entry.path;
+  const isRoot = entry.path === '/';
   if (entry.isDir) {
     const toggle = () => (entry.expanded ? onCollapse(entry.path) : onExpand(entry.path));
     return (
       <>
-        <div
-          className="group flex items-center hover:bg-accent transition-colors"
-          onContextMenu={(e) => onContextMenu(e, entry.path, entry.expanded)}
-        >
-          <button
-            onClick={toggle}
-            style={{ paddingLeft: indent }}
-            className="flex items-center gap-1.5 flex-1 min-w-0 text-left pr-1 py-1 text-sm"
+        {isRenaming ? (
+          <RenameEntryInput
+            entry={entry}
+            depth={depth}
+            onCancel={onCancelRename}
+            onSubmit={onSubmitRename}
+          />
+        ) : (
+          <div
+            className="group flex items-center hover:bg-accent transition-colors"
+            onContextMenu={(e) => onContextMenu(e, entry)}
           >
-            {entry.expanded ? (
-              <ChevronDown size={12} className="shrink-0" />
-            ) : (
-              <ChevronRight size={12} className="shrink-0" />
+            <button
+              onClick={toggle}
+              style={{ paddingLeft: indent }}
+              className="flex items-center gap-1.5 flex-1 min-w-0 text-left pr-1 py-1 text-sm"
+            >
+              {entry.expanded ? (
+                <ChevronDown size={12} className="shrink-0" />
+              ) : (
+                <ChevronRight size={12} className="shrink-0" />
+              )}
+              <Folder size={14} className="shrink-0" />
+              <span className="truncate">{entry.name}</span>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartCreate(entry.path, 'dir', entry.expanded);
+              }}
+              title="New folder"
+              aria-label={`New folder in ${entry.name}`}
+              className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+            >
+              <FolderPlus size={12} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartCreate(entry.path, 'file', entry.expanded);
+              }}
+              title="New file"
+              aria-label={`New file in ${entry.name}`}
+              className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+            >
+              <Plus size={12} />
+            </button>
+            {!isRoot && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartRename(entry.path);
+                }}
+                title="Rename"
+                aria-label={`Rename ${entry.name}`}
+                className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+              >
+                <Pencil size={12} />
+              </button>
             )}
-            <Folder size={14} className="shrink-0" />
-            <span className="truncate">{entry.name}</span>
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onStartCreate(entry.path, 'dir', entry.expanded);
-            }}
-            title="New folder"
-            aria-label={`New folder in ${entry.name}`}
-            className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
-          >
-            <FolderPlus size={12} />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onStartCreate(entry.path, 'file', entry.expanded);
-            }}
-            title="New file"
-            aria-label={`New file in ${entry.name}`}
-            className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
-          >
-            <Plus size={12} />
-          </button>
-        </div>
+          </div>
+        )}
         {entry.expanded && (
           <>
             {creating?.path === entry.path && (
@@ -256,6 +299,10 @@ function TreeRow({
                 onStartCreate={onStartCreate}
                 onCancelCreate={onCancelCreate}
                 onSubmitCreate={onSubmitCreate}
+                renaming={renaming}
+                onStartRename={onStartRename}
+                onCancelRename={onCancelRename}
+                onSubmitRename={onSubmitRename}
                 onContextMenu={onContextMenu}
               />
             ))}
@@ -264,15 +311,41 @@ function TreeRow({
       </>
     );
   }
+  if (isRenaming) {
+    return (
+      <RenameEntryInput
+        entry={entry}
+        depth={depth}
+        onCancel={onCancelRename}
+        onSubmit={onSubmitRename}
+      />
+    );
+  }
   return (
-    <button
-      onClick={() => onOpenFile(entry.path)}
-      style={{ paddingLeft: indent + 12 }}
-      className="flex items-center gap-1.5 w-full text-left pr-2 py-1 text-sm hover:bg-accent transition-colors truncate"
+    <div
+      className="group flex items-center hover:bg-accent transition-colors"
+      onContextMenu={(e) => onContextMenu(e, entry)}
     >
-      <File size={14} className="shrink-0" />
-      <span className="truncate">{entry.name}</span>
-    </button>
+      <button
+        onClick={() => onOpenFile(entry.path)}
+        style={{ paddingLeft: indent + 12 }}
+        className="flex items-center gap-1.5 flex-1 min-w-0 text-left pr-1 py-1 text-sm truncate"
+      >
+        <File size={14} className="shrink-0" />
+        <span className="truncate">{entry.name}</span>
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onStartRename(entry.path);
+        }}
+        title="Rename"
+        aria-label={`Rename ${entry.name}`}
+        className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+      >
+        <Pencil size={12} />
+      </button>
+    </div>
   );
 }
 
@@ -370,9 +443,130 @@ function CreateEntryInput({
   );
 }
 
+interface RenameEntryInputProps {
+  entry: DeviceTreeEntry;
+  depth: number;
+  onCancel: () => void;
+  onSubmit: (path: string, newName: string) => Promise<void>;
+}
+
+function RenameEntryInput({ entry, depth, onCancel, onSubmit }: RenameEntryInputProps) {
+  const [name, setName] = useState(entry.name);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const indent = 8 + depth * 12;
+  const isFile = !entry.isDir;
+  const Icon = isFile ? File : Folder;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    // Select the stem so editing the name (not the extension) is the
+    // common case for files; for directories select the whole name.
+    const dotIdx = isFile ? entry.name.lastIndexOf('.') : -1;
+    const selectionEnd = dotIdx > 0 ? dotIdx : entry.name.length;
+    inputRef.current?.setSelectionRange(0, selectionEnd);
+  }, [entry.name, isFile]);
+
+  const validation = validateName(name);
+  const isUnchanged = name === entry.name;
+  const showRejection = name.length > 0 && !validation.ok;
+  const canSubmit = validation.ok && !submitting && !isUnchanged;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmit(entry.path, name);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void handleSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
+  return (
+    <div
+      style={{ paddingLeft: isFile ? indent + 12 : indent }}
+      className="flex flex-col py-0.5 pr-2 gap-0.5"
+    >
+      <div className="flex items-center gap-1.5">
+        {!isFile &&
+          (entry.isDir && entry.expanded ? (
+            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+          ))}
+        <Icon size={14} className="shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={submitting}
+          aria-label={`Rename ${entry.name}`}
+          aria-invalid={showRejection || !!submitError}
+          className="flex-1 min-w-0 px-1 py-0.5 text-sm bg-background border border-input rounded focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="px-2 py-0.5 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Rename
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={submitting}
+          className="px-2 py-0.5 text-xs rounded hover:bg-accent transition-colors disabled:opacity-40"
+        >
+          Cancel
+        </button>
+      </div>
+      {(showRejection || submitError) && (
+        <div className="text-xs text-destructive pl-5">
+          {submitError ?? (validation.ok ? null : validation.reason)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ContextMenuItem {
   label: string;
   onClick: () => void;
+}
+
+function buildContextMenuItems(
+  entry: DeviceTreeEntry,
+  startCreate: (parentPath: string, kind: CreateKind, expanded: boolean) => void,
+  startRename: (path: string) => void,
+): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [];
+  if (entry.isDir) {
+    items.push({
+      label: 'New file',
+      onClick: () => startCreate(entry.path, 'file', entry.expanded),
+    });
+    items.push({
+      label: 'New folder',
+      onClick: () => startCreate(entry.path, 'dir', entry.expanded),
+    });
+  }
+  if (entry.path !== '/') {
+    items.push({ label: 'Rename', onClick: () => startRename(entry.path) });
+  }
+  return items;
 }
 
 function ContextMenu({ x, y, items }: { x: number; y: number; items: ContextMenuItem[] }) {
