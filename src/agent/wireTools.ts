@@ -12,6 +12,7 @@ import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
 import { ListDeviceFilesTool } from './tools/ListDeviceFilesTool';
 import { ReadDeviceFileTool } from './tools/ReadDeviceFileTool';
 import { WriteDeviceFileTool } from './tools/WriteDeviceFileTool';
+import { DeleteDeviceFileTool } from './tools/DeleteDeviceFileTool';
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -44,4 +45,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new ListDeviceFilesTool(get));
   tools.register(new ReadDeviceFileTool(get));
   tools.register(new WriteDeviceFileTool(get));
+  tools.register(new DeleteDeviceFileTool(get));
 }
