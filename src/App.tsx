@@ -43,6 +43,8 @@ export function App() {
     writeText: deviceWriteText,
     mkdir: deviceMkdir,
     rename: deviceRename,
+    removeFile: deviceRemoveFile,
+    removeDir: deviceRemoveDir,
   } = deviceFsHook;
 
   const handleCreateDeviceFile = useCallback(
@@ -64,6 +66,20 @@ export function App() {
       await deviceRename(path, join(dirname(path), newName));
     },
     [deviceRename],
+  );
+
+  const handleDeleteDeviceFile = useCallback(
+    async (path: string) => {
+      await deviceRemoveFile(path);
+    },
+    [deviceRemoveFile],
+  );
+
+  const handleDeleteDeviceDir = useCallback(
+    async (path: string) => {
+      await deviceRemoveDir(path);
+    },
+    [deviceRemoveDir],
   );
 
   const deviceFs = useMemo(
@@ -266,6 +282,8 @@ export function App() {
                     onCreateFile={handleCreateDeviceFile}
                     onCreateDir={handleCreateDeviceDir}
                     onRename={handleRenameDeviceEntry}
+                    onDeleteFile={handleDeleteDeviceFile}
+                    onDeleteDir={handleDeleteDeviceDir}
                   />,
                 ]}
               </SplitPane>,
