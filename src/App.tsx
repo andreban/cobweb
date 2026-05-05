@@ -15,6 +15,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { AgentPanel } from './components/AgentPanel';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor } from './hooks/useEditor';
+import { useDeviceFs } from './hooks/useDeviceFs';
 import { useProviderConfig } from './hooks/useProviderConfig';
 import { useTheme } from './hooks/useTheme';
 import { createModels } from './models';
@@ -27,11 +28,13 @@ import { saveEditor } from './lib/saveEditor';
 const models = createModels();
 
 export function App() {
-  const { connectionState, connect, disconnect, reset, runCode, send, onData, replHistory } =
+  const { connectionState, connect, disconnect, reset, runCode, sendRaw, send, onData, replHistory } =
     useReplConnection();
   const { config, save: saveConfig, clear: clearConfig } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
   const { editorRef, getContent, setContent, origin, setOriginAndContent } = useEditor(theme);
+
+  const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
 
   const deviceFs = useMemo(
     () => (connectionState === 'connected' ? new DeviceFs(runCode) : null),
@@ -140,7 +143,21 @@ export function App() {
               >
                 {[
                   <FileNavigator key="files" onFileSelected={setContent} />,
-                  <DeviceFileNavigator key="device-files" />,
+                  <DeviceFileNavigator
+                    key="device-files"
+                    isAvailable={deviceFsHook.isAvailable}
+                    tree={deviceFsHook.tree}
+                    busy={deviceFsHook.busy}
+                    onExpand={(p) => {
+                      deviceFsHook.expand(p).catch((err) => console.error('Expand failed:', err));
+                    }}
+                    onCollapse={deviceFsHook.collapse}
+                    onRefreshAll={() => {
+                      deviceFsHook.refreshAll().catch((err) =>
+                        console.error('Refresh failed:', err),
+                      );
+                    }}
+                  />,
                 ]}
               </SplitPane>,
               <SplitPane
