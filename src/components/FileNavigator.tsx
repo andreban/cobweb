@@ -2,9 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react';
-import { useCallback, useImperativeHandle, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import type { DragEvent as ReactDragEvent, RefObject } from 'react';
 import { basename } from '../lib/devicePath';
+import {
+  clearFolderHandle,
+  loadFolderHandle,
+  saveFolderHandle,
+} from '../lib/handleStore';
 import {
   DEVICE_PATH_MIME,
   LOCAL_PATH_MIME,
@@ -51,18 +56,83 @@ export function FileNavigator({
   ref,
 }: FileNavigatorProps) {
   const [root, setRoot] = useState<LocalTreeNode | null>(null);
+  // A handle was restored from IndexedDB but the browser still requires the
+  // user to re-grant readwrite permission. Triggers the "Reopen" button in
+  // the header, which calls requestPermission inside the click gesture.
+  const [pendingHandle, setPendingHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [isDeviceDragOver, setIsDeviceDragOver] = useState(false);
 
-  const openDirectory = async () => {
-    const dirHandle = await window.showDirectoryPicker();
-    const children = await loadChildren(dirHandle);
+  const setRootFromHandle = (handle: FileSystemDirectoryHandle, children: LocalTreeEntry[]) => {
     setRoot({
-      handle: dirHandle,
-      name: dirHandle.name,
+      handle,
+      name: handle.name,
       isDir: true,
       expanded: true,
       children,
     });
+  };
+
+  const openDirectory = async () => {
+    const dirHandle = await window.showDirectoryPicker();
+    const children = await loadChildren(dirHandle);
+    setRootFromHandle(dirHandle, children);
+    setPendingHandle(null);
+    await saveFolderHandle(dirHandle);
+  };
+
+  // Mount-time restore: if a handle is persisted and permission is still
+  // granted, reopen silently. If the browser requires a re-grant, surface a
+  // "Reopen" button instead of opening unprompted.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const handle = await loadFolderHandle();
+      if (cancelled || !handle) return;
+      let perm: PermissionState;
+      try {
+        perm = await handle.queryPermission({ mode: 'readwrite' });
+      } catch {
+        // queryPermission unsupported — fall back to manual Open Folder.
+        return;
+      }
+      if (cancelled) return;
+      if (perm === 'granted') {
+        try {
+          const children = await loadChildren(handle);
+          if (cancelled) return;
+          setRootFromHandle(handle, children);
+        } catch {
+          // Folder no longer exists, was renamed, or permission revoked
+          // mid-iterate. Drop the stale handle.
+          await clearFolderHandle();
+        }
+      } else {
+        setPendingHandle(handle);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reopenPending = async () => {
+    if (!pendingHandle) return;
+    try {
+      const perm = await pendingHandle.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        // User declined — reveal the regular Open Folder button so they
+        // can pick a different folder.
+        setPendingHandle(null);
+        return;
+      }
+      const children = await loadChildren(pendingHandle);
+      setRootFromHandle(pendingHandle, children);
+      setPendingHandle(null);
+    } catch {
+      // Folder gone, permission API failure, etc. Drop the stale handle.
+      setPendingHandle(null);
+      await clearFolderHandle();
+    }
   };
 
   const toggleFolder = async (path: string[]) => {
@@ -153,14 +223,27 @@ export function FileNavigator({
       }}
     >
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
-        <button
-          onClick={openDirectory}
-          title="Open folder"
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors w-full"
-        >
-          <FolderOpen size={14} />
-          Open Folder
-        </button>
+        {pendingHandle ? (
+          <button
+            onClick={reopenPending}
+            title={`Reopen ${pendingHandle.name}`}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors w-full min-w-0"
+          >
+            <FolderOpen size={14} className="shrink-0" />
+            <span className="truncate">
+              Reopen <em>{pendingHandle.name}</em>
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={openDirectory}
+            title="Open folder"
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors w-full"
+          >
+            <FolderOpen size={14} />
+            Open Folder
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto">
         {root && (
