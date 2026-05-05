@@ -17,6 +17,7 @@ import { AgentPanel } from './components/AgentPanel';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor, type EditorOrigin } from './hooks/useEditor';
 import { useDeviceFs } from './hooks/useDeviceFs';
+import { useLayout } from './hooks/useLayout';
 import { useProviderConfig } from './hooks/useProviderConfig';
 import { useTheme } from './hooks/useTheme';
 import { createModels } from './models';
@@ -273,13 +274,22 @@ export function App() {
   );
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [leftSize, setLeftSize] = useState(20);
-  const [rightOpen, setRightOpen] = useState(true);
-  const [rightSize, setRightSize] = useState(35);
-  const [replOpen, setReplOpen] = useState(true);
-  const [replSize, setReplSize] = useState(40);
-  const [leftSplitSize, setLeftSplitSize] = useState(50);
+  const {
+    leftOpen,
+    setLeftOpen,
+    leftSize,
+    setLeftSize,
+    rightOpen,
+    setRightOpen,
+    rightSize,
+    setRightSize,
+    replOpen,
+    setReplOpen,
+    replSize,
+    setReplSize,
+    leftSplitSize,
+    setLeftSplitSize,
+  } = useLayout();
 
   return (
     <AgentProvider
