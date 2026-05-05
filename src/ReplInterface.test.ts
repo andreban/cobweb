@@ -13,6 +13,9 @@ class FakeSerialPort {
   closed = false;
   writableClosed = false;
   readableCancelled = false;
+  opened = false;
+  openOptions: SerialOptions | null = null;
+  info: SerialPortInfo = {usbVendorId: 0x2e8a, usbProductId: 0x0005};
 
   /**
    * Optional hook letting tests fail a specific write. Return an Error to
@@ -81,6 +84,15 @@ class FakeSerialPort {
 
   async close() {
     this.closed = true;
+  }
+
+  async open(options: SerialOptions) {
+    this.opened = true;
+    this.openOptions = options;
+  }
+
+  getInfo(): SerialPortInfo {
+    return this.info;
   }
 }
 
@@ -868,6 +880,62 @@ describe('ReplInterface', () => {
           });
         }
       }
+    });
+  });
+
+  describe('connectToPort', () => {
+    it('opens the supplied port and returns a wired ReplInterface', async () => {
+      // beforeEach already ran, but we want a fresh port we control.
+      port.endReadable();
+      const fresh = new FakeSerialPort();
+      const iface = await ReplInterface.connectToPort(fresh as unknown as SerialPort);
+      expect(fresh.opened).toBe(true);
+      expect(fresh.openOptions).toEqual({baudRate: 115200, dataBits: 8, stopBits: 1});
+      // The returned interface dispatches data events from the supplied port.
+      const seen: Uint8Array[] = [];
+      iface.addEventListener('data', (e) => {
+        seen.push((e as CustomEvent<Uint8Array>).detail);
+      });
+      fresh.inject([0x68, 0x69]);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(seen).toEqual([bytes(0x68, 0x69)]);
+      fresh.endReadable();
+    });
+
+    it('does not invoke navigator.serial.requestPort()', async () => {
+      // No need to set up navigator.serial — connectToPort skips the chooser.
+      port.endReadable();
+      const fresh = new FakeSerialPort();
+      const nav = navigator as unknown as { serial?: unknown };
+      const original = nav.serial;
+      delete nav.serial;
+      try {
+        await expect(
+          ReplInterface.connectToPort(fresh as unknown as SerialPort),
+        ).resolves.toBeInstanceOf(ReplInterface);
+      } finally {
+        if (original !== undefined) {
+          Object.defineProperty(navigator, 'serial', {
+            value: original,
+            configurable: true,
+          });
+        }
+        fresh.endReadable();
+      }
+    });
+  });
+
+  describe('getPortInfo', () => {
+    it('returns the underlying port USB IDs', () => {
+      port.info = {usbVendorId: 0x2e8a, usbProductId: 0x0005};
+      const info = repl.getPortInfo();
+      expect(info).toEqual({usbVendorId: 0x2e8a, usbProductId: 0x0005});
+    });
+
+    it('returns the IDs even when only one is set (non-USB transports)', () => {
+      port.info = {usbVendorId: 0x2e8a};
+      const info = repl.getPortInfo();
+      expect(info).toEqual({usbVendorId: 0x2e8a, usbProductId: undefined});
     });
   });
 });
