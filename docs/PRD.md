@@ -18,7 +18,7 @@ Cobweb removes that friction by running the entire development workflow in the b
 - Connect to a MicroPython REPL over Web Serial (no extensions, no native app).
 - Execute code on the connected device and display output in an integrated terminal.
 - Allow browsing and opening files from the local filesystem to load into the editor.
-- Allow browsing, editing, and managing files on the connected microcontroller's filesystem (see `docs/device-files/`).
+- Allow browsing, editing, and managing files on the connected microcontroller's filesystem.
 - Work as a Progressive Web App (installable, offline-capable UI shell).
 
 ## Out of Scope
