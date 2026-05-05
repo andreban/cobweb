@@ -42,6 +42,7 @@ export function App() {
     list: deviceList,
     readBytes: deviceReadBytes,
     writeText: deviceWriteText,
+    writeBytes: deviceWriteBytes,
     mkdir: deviceMkdir,
     rename: deviceRename,
     removeFile: deviceRemoveFile,
@@ -100,6 +101,45 @@ export function App() {
     | { kind: 'pending-switch'; origin: EditorOrigin; content: string }
     | { kind: 'message'; message: string };
   const [banner, setBanner] = useState<BannerState | null>(null);
+
+  const handleUploadToDevice = useCallback(
+    async (parentPath: string, files: File[]): Promise<void> => {
+      // List once per drop and reuse — multi-file drops to the same folder
+      // are the common case and we want one round-trip, not N. Re-listing
+      // after each successful write would catch self-collisions if the user
+      // dropped two copies of the same name, but that's a degenerate case
+      // and the user can resolve via the second confirm.
+      let existingNames: Set<string>;
+      try {
+        existingNames = new Set((await deviceList(parentPath)).map((e) => e.name));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setBanner({ kind: 'message', message: `Upload failed: ${message}` });
+        return;
+      }
+      for (const file of files) {
+        if (existingNames.has(file.name)) {
+          if (!window.confirm(`${file.name} already exists in ${parentPath}. Overwrite?`)) {
+            continue;
+          }
+        }
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          await deviceWriteBytes(join(parentPath, file.name), bytes);
+          existingNames.add(file.name);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setBanner({ kind: 'message', message: `Upload failed: ${message}` });
+          return;
+        }
+      }
+    },
+    [deviceList, deviceWriteBytes],
+  );
+
+  const handleShowDeviceMessage = useCallback((message: string) => {
+    setBanner({ kind: 'message', message });
+  }, []);
 
   const handleSave = useCallback(async (): Promise<'saved' | 'cancelled' | 'noop'> => {
     return saveEditor(origin, getContent(), setOriginAndContent, deviceWriteText);
@@ -294,6 +334,8 @@ export function App() {
                     onDeleteFile={handleDeleteDeviceFile}
                     onDeleteDir={handleDeleteDeviceDir}
                     onCountChildren={handleCountDeviceChildren}
+                    onUpload={handleUploadToDevice}
+                    onShowMessage={handleShowDeviceMessage}
                   />,
                 ]}
               </SplitPane>,

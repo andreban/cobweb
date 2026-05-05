@@ -3,6 +3,12 @@
 
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react';
 import { useState } from 'react';
+import type { DragEvent as ReactDragEvent } from 'react';
+import {
+  LOCAL_PATH_MIME,
+  clearLocalDragSource,
+  registerLocalDragSource,
+} from '../lib/localDragSource';
 
 interface LocalTreeNode {
   handle: FileSystemDirectoryHandle;
@@ -126,8 +132,39 @@ function TreeRow({ entry, path, depth, onToggle, onOpenFile }: TreeRowProps) {
       </>
     );
   }
+  return <FileTreeRow entry={entry} indent={indent} onOpenFile={onOpenFile} />;
+}
+
+interface FileTreeRowProps {
+  entry: LocalTreeFile;
+  indent: number;
+  onOpenFile: (handle: FileSystemFileHandle) => void;
+}
+
+function FileTreeRow({ entry, indent, onOpenFile }: FileTreeRowProps) {
+  const [dragId, setDragId] = useState<string | null>(null);
+
+  const onDragStart = (e: ReactDragEvent<HTMLButtonElement>) => {
+    const id = registerLocalDragSource(entry.handle, entry.name);
+    e.dataTransfer.setData(LOCAL_PATH_MIME, id);
+    e.dataTransfer.effectAllowed = 'copy';
+    setDragId(id);
+  };
+
+  const onDragEnd = () => {
+    if (dragId) {
+      // Drop targets `consume` the source on success; `clear` is a no-op
+      // there. On a cancelled drag the entry would otherwise leak.
+      clearLocalDragSource(dragId);
+      setDragId(null);
+    }
+  };
+
   return (
     <button
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={() => onOpenFile(entry.handle)}
       style={{ paddingLeft: indent + 12 }}
       className="flex items-center gap-1.5 w-full text-left pr-2 py-1 text-sm hover:bg-accent transition-colors truncate"
