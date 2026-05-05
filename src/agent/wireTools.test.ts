@@ -29,6 +29,7 @@ describe('wireTools', () => {
       'read_repl_history',
       'run_editor',
       'run_snippet',
+      'write_device_file',
       'write_editor',
     ]);
   });
@@ -37,7 +38,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(7);
+    expect(tools.getTools()).toHaveLength(8);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
