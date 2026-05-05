@@ -1,11 +1,22 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { ChevronDown, ChevronRight, File, Folder, Loader2, Plus, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  File,
+  Folder,
+  FolderPlus,
+  Loader2,
+  Plus,
+  RefreshCw,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { DeviceTreeEntry, DeviceTreeNode } from '../hooks/useDeviceFs';
 import { validateName } from '../lib/devicePath';
+
+type CreateKind = 'file' | 'dir';
 
 interface DeviceFileNavigatorProps {
   isAvailable: boolean;
@@ -16,6 +27,7 @@ interface DeviceFileNavigatorProps {
   onRefreshAll: () => void;
   onOpenFile: (path: string) => void;
   onCreateFile: (parentPath: string, name: string) => Promise<void>;
+  onCreateDir: (parentPath: string, name: string) => Promise<void>;
 }
 
 export function DeviceFileNavigator({
@@ -27,8 +39,9 @@ export function DeviceFileNavigator({
   onRefreshAll,
   onOpenFile,
   onCreateFile,
+  onCreateDir,
 }: DeviceFileNavigatorProps) {
-  const [creatingInPath, setCreatingInPath] = useState<string | null>(null);
+  const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -59,20 +72,24 @@ export function DeviceFileNavigator({
   const [prevIsAvailable, setPrevIsAvailable] = useState(isAvailable);
   if (prevIsAvailable !== isAvailable) {
     setPrevIsAvailable(isAvailable);
-    if (!isAvailable && creatingInPath !== null) setCreatingInPath(null);
+    if (!isAvailable && creating !== null) setCreating(null);
   }
 
-  const startCreate = (parentPath: string, expanded: boolean) => {
+  const startCreate = (parentPath: string, kind: CreateKind, expanded: boolean) => {
     if (!expanded) onExpand(parentPath);
-    setCreatingInPath(parentPath);
+    setCreating({ path: parentPath, kind });
     setContextMenu(null);
   };
 
-  const cancelCreate = () => setCreatingInPath(null);
+  const cancelCreate = () => setCreating(null);
 
-  const submitCreate = async (parentPath: string, name: string) => {
-    await onCreateFile(parentPath, name);
-    setCreatingInPath(null);
+  const submitCreate = async (parentPath: string, kind: CreateKind, name: string) => {
+    if (kind === 'file') {
+      await onCreateFile(parentPath, name);
+    } else {
+      await onCreateDir(parentPath, name);
+    }
+    setCreating(null);
   };
 
   const openContextMenu = (
@@ -118,7 +135,7 @@ export function DeviceFileNavigator({
             onExpand={onExpand}
             onCollapse={onCollapse}
             onOpenFile={onOpenFile}
-            creatingInPath={creatingInPath}
+            creating={creating}
             onStartCreate={startCreate}
             onCancelCreate={cancelCreate}
             onSubmitCreate={submitCreate}
@@ -133,7 +150,11 @@ export function DeviceFileNavigator({
           items={[
             {
               label: 'New file',
-              onClick: () => startCreate(contextMenu.path, contextMenu.expanded),
+              onClick: () => startCreate(contextMenu.path, 'file', contextMenu.expanded),
+            },
+            {
+              label: 'New folder',
+              onClick: () => startCreate(contextMenu.path, 'dir', contextMenu.expanded),
             },
           ]}
         />
@@ -148,10 +169,10 @@ interface TreeRowProps {
   onExpand: (path: string) => void;
   onCollapse: (path: string) => void;
   onOpenFile: (path: string) => void;
-  creatingInPath: string | null;
-  onStartCreate: (parentPath: string, expanded: boolean) => void;
+  creating: { path: string; kind: CreateKind } | null;
+  onStartCreate: (parentPath: string, kind: CreateKind, expanded: boolean) => void;
   onCancelCreate: () => void;
-  onSubmitCreate: (parentPath: string, name: string) => Promise<void>;
+  onSubmitCreate: (parentPath: string, kind: CreateKind, name: string) => Promise<void>;
   onContextMenu: (e: ReactMouseEvent, path: string, expanded: boolean) => void;
 }
 
@@ -161,7 +182,7 @@ function TreeRow({
   onExpand,
   onCollapse,
   onOpenFile,
-  creatingInPath,
+  creating,
   onStartCreate,
   onCancelCreate,
   onSubmitCreate,
@@ -192,7 +213,18 @@ function TreeRow({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onStartCreate(entry.path, entry.expanded);
+              onStartCreate(entry.path, 'dir', entry.expanded);
+            }}
+            title="New folder"
+            aria-label={`New folder in ${entry.name}`}
+            className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+          >
+            <FolderPlus size={12} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartCreate(entry.path, 'file', entry.expanded);
             }}
             title="New file"
             aria-label={`New file in ${entry.name}`}
@@ -203,9 +235,10 @@ function TreeRow({
         </div>
         {entry.expanded && (
           <>
-            {creatingInPath === entry.path && (
-              <CreateFileInput
+            {creating?.path === entry.path && (
+              <CreateEntryInput
                 parentPath={entry.path}
+                kind={creating.kind}
                 depth={depth + 1}
                 onCancel={onCancelCreate}
                 onSubmit={onSubmitCreate}
@@ -219,7 +252,7 @@ function TreeRow({
                 onExpand={onExpand}
                 onCollapse={onCollapse}
                 onOpenFile={onOpenFile}
-                creatingInPath={creatingInPath}
+                creating={creating}
                 onStartCreate={onStartCreate}
                 onCancelCreate={onCancelCreate}
                 onSubmitCreate={onSubmitCreate}
@@ -243,19 +276,30 @@ function TreeRow({
   );
 }
 
-interface CreateFileInputProps {
+interface CreateEntryInputProps {
   parentPath: string;
+  kind: CreateKind;
   depth: number;
   onCancel: () => void;
-  onSubmit: (parentPath: string, name: string) => Promise<void>;
+  onSubmit: (parentPath: string, kind: CreateKind, name: string) => Promise<void>;
 }
 
-function CreateFileInput({ parentPath, depth, onCancel, onSubmit }: CreateFileInputProps) {
+function CreateEntryInput({
+  parentPath,
+  kind,
+  depth,
+  onCancel,
+  onSubmit,
+}: CreateEntryInputProps) {
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const indent = 8 + depth * 12;
+  const isFile = kind === 'file';
+  const Icon = isFile ? File : Folder;
+  const placeholder = isFile ? 'filename.py' : 'foldername';
+  const ariaLabel = isFile ? 'New file name' : 'New folder name';
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -270,7 +314,7 @@ function CreateFileInput({ parentPath, depth, onCancel, onSubmit }: CreateFileIn
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await onSubmit(parentPath, name);
+      await onSubmit(parentPath, kind, name);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
@@ -290,15 +334,15 @@ function CreateFileInput({ parentPath, depth, onCancel, onSubmit }: CreateFileIn
   return (
     <div style={{ paddingLeft: indent + 12 }} className="flex flex-col py-0.5 pr-2 gap-0.5">
       <div className="flex items-center gap-1.5">
-        <File size={14} className="shrink-0 text-muted-foreground" />
+        <Icon size={14} className="shrink-0 text-muted-foreground" />
         <input
           ref={inputRef}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={submitting}
-          placeholder="filename.py"
-          aria-label="New file name"
+          placeholder={placeholder}
+          aria-label={ariaLabel}
           aria-invalid={showRejection || !!submitError}
           className="flex-1 min-w-0 px-1 py-0.5 text-sm bg-background border border-input rounded focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
         />
