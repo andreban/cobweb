@@ -32,7 +32,8 @@ interface DeviceFileNavigatorProps {
   onCreateDir: (parentPath: string, name: string) => Promise<void>;
   onRename: (path: string, newName: string) => Promise<void>;
   onDeleteFile: (path: string) => Promise<void>;
-  onDeleteDir: (path: string) => Promise<void>;
+  onDeleteDir: (path: string, recursive: boolean) => Promise<void>;
+  onCountChildren: (path: string) => Promise<number>;
 }
 
 export function DeviceFileNavigator({
@@ -48,6 +49,7 @@ export function DeviceFileNavigator({
   onRename,
   onDeleteFile,
   onDeleteDir,
+  onCountChildren,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
   const [renaming, setRenaming] = useState<{ path: string } | null>(null);
@@ -130,9 +132,9 @@ export function DeviceFileNavigator({
 
   const cancelDelete = () => setDeleting(null);
 
-  const submitDelete = async (entry: DeviceTreeEntry) => {
+  const submitDelete = async (entry: DeviceTreeEntry, recursive: boolean) => {
     if (entry.isDir) {
-      await onDeleteDir(entry.path);
+      await onDeleteDir(entry.path, recursive);
     } else {
       await onDeleteFile(entry.path);
     }
@@ -190,6 +192,7 @@ export function DeviceFileNavigator({
             onStartDelete={startDelete}
             onCancelDelete={cancelDelete}
             onSubmitDelete={submitDelete}
+            onCountChildren={onCountChildren}
             onContextMenu={openContextMenu}
           />
         )}
@@ -222,7 +225,8 @@ interface TreeRowProps {
   deleting: { path: string } | null;
   onStartDelete: (path: string) => void;
   onCancelDelete: () => void;
-  onSubmitDelete: (entry: DeviceTreeEntry) => Promise<void>;
+  onSubmitDelete: (entry: DeviceTreeEntry, recursive: boolean) => Promise<void>;
+  onCountChildren: (path: string) => Promise<number>;
   onContextMenu: (e: ReactMouseEvent, entry: DeviceTreeEntry) => void;
 }
 
@@ -244,6 +248,7 @@ function TreeRow({
   onStartDelete,
   onCancelDelete,
   onSubmitDelete,
+  onCountChildren,
   onContextMenu,
 }: TreeRowProps) {
   const indent = 8 + depth * 12;
@@ -267,6 +272,7 @@ function TreeRow({
             depth={depth}
             onCancel={onCancelDelete}
             onSubmit={onSubmitDelete}
+            onCountChildren={onCountChildren}
           />
         ) : (
           <div
@@ -367,6 +373,7 @@ function TreeRow({
                 onStartDelete={onStartDelete}
                 onCancelDelete={onCancelDelete}
                 onSubmitDelete={onSubmitDelete}
+                onCountChildren={onCountChildren}
                 onContextMenu={onContextMenu}
               />
             ))}
@@ -392,6 +399,7 @@ function TreeRow({
         depth={depth}
         onCancel={onCancelDelete}
         onSubmit={onSubmitDelete}
+        onCountChildren={onCountChildren}
       />
     );
   }
@@ -631,12 +639,24 @@ interface DeleteConfirmRowProps {
   entry: DeviceTreeEntry;
   depth: number;
   onCancel: () => void;
-  onSubmit: (entry: DeviceTreeEntry) => Promise<void>;
+  onSubmit: (entry: DeviceTreeEntry, recursive: boolean) => Promise<void>;
+  onCountChildren: (path: string) => Promise<number>;
 }
 
-function DeleteConfirmRow({ entry, depth, onCancel, onSubmit }: DeleteConfirmRowProps) {
+function DeleteConfirmRow({
+  entry,
+  depth,
+  onCancel,
+  onSubmit,
+  onCountChildren,
+}: DeleteConfirmRowProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // For directories, the count of immediate children drives both the prompt
+  // wording and whether we dispatch a recursive delete. `null` means "still
+  // loading"; we show the row but disable Delete until the count is in.
+  const [childCount, setChildCount] = useState<number | null>(entry.isDir ? null : 0);
+  const [countError, setCountError] = useState<string | null>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const indent = 8 + depth * 12;
   const isFile = !entry.isDir;
@@ -648,12 +668,35 @@ function DeleteConfirmRow({ entry, depth, onCancel, onSubmit }: DeleteConfirmRow
     confirmRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (!entry.isDir) return;
+    let cancelled = false;
+    onCountChildren(entry.path)
+      .then((n) => {
+        if (!cancelled) setChildCount(n);
+      })
+      .catch((err) => {
+        if (!cancelled) setCountError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.isDir, entry.path, onCountChildren]);
+
+  const recursive = (childCount ?? 0) > 0;
+  const ready = childCount !== null;
+  const prompt = !ready
+    ? `Delete ${entry.name}?`
+    : recursive
+      ? `Delete ${entry.name} and ${childCount} item${childCount === 1 ? '' : 's'} inside?`
+      : `Delete ${entry.name}?`;
+
   const handleSubmit = async () => {
-    if (submitting) return;
+    if (submitting || !ready) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await onSubmit(entry);
+      await onSubmit(entry, recursive);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
@@ -681,11 +724,11 @@ function DeleteConfirmRow({ entry, depth, onCancel, onSubmit }: DeleteConfirmRow
             <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
           ))}
         <Icon size={14} className="shrink-0 text-muted-foreground" />
-        <span className="flex-1 min-w-0 truncate text-sm">Delete {entry.name}?</span>
+        <span className="flex-1 min-w-0 truncate text-sm">{prompt}</span>
         <button
           ref={confirmRef}
           onClick={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || !ready}
           className="px-2 py-0.5 text-xs rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Delete
@@ -698,6 +741,11 @@ function DeleteConfirmRow({ entry, depth, onCancel, onSubmit }: DeleteConfirmRow
           Cancel
         </button>
       </div>
+      {countError && (
+        <div className="text-xs text-destructive pl-5">
+          Couldn't read directory: {countError}
+        </div>
+      )}
       {submitError && <div className="text-xs text-destructive pl-5">{submitError}</div>}
     </div>
   );

@@ -39,6 +39,7 @@ export function App() {
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
   const {
+    list: deviceList,
     readBytes: deviceReadBytes,
     writeText: deviceWriteText,
     mkdir: deviceMkdir,
@@ -76,10 +77,18 @@ export function App() {
   );
 
   const handleDeleteDeviceDir = useCallback(
-    async (path: string) => {
-      await deviceRemoveDir(path);
+    async (path: string, recursive: boolean) => {
+      await deviceRemoveDir(path, { recursive });
     },
     [deviceRemoveDir],
+  );
+
+  const handleCountDeviceChildren = useCallback(
+    async (path: string): Promise<number> => {
+      const entries = await deviceList(path);
+      return entries.length;
+    },
+    [deviceList],
   );
 
   const deviceFs = useMemo(
@@ -284,6 +293,7 @@ export function App() {
                     onRename={handleRenameDeviceEntry}
                     onDeleteFile={handleDeleteDeviceFile}
                     onDeleteDir={handleDeleteDeviceDir}
+                    onCountChildren={handleCountDeviceChildren}
                   />,
                 ]}
               </SplitPane>,

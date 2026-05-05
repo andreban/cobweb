@@ -150,6 +150,14 @@ export function useDeviceFs(connection: ReplConnection) {
     return fs;
   };
 
+  const list = useCallback(
+    async (path: string): Promise<DeviceDirEntry[]> => {
+      const fs = ensureFs();
+      return trackBusy(() => runPrimary(() => fs.list(path)));
+    },
+    [trackBusy, runPrimary],
+  );
+
   const readBytes = useCallback(
     async (path: string): Promise<Uint8Array> => {
       const fs = ensureFs();
@@ -274,6 +282,7 @@ export function useDeviceFs(connection: ReplConnection) {
     collapse,
     refresh,
     refreshAll,
+    list,
     readText,
     writeText,
     writeBytes,

@@ -496,6 +496,41 @@ describe('useDeviceFs error reporting', () => {
   });
 });
 
+describe('useDeviceFs.list', () => {
+  it('delegates to DeviceFs.list and surfaces results without touching the tree', async () => {
+    const sendRaw = makeSendRaw();
+    mockDeviceFs.list.mockResolvedValueOnce([]); // initial root
+    const { result } = renderHook(() =>
+      useDeviceFs({ connectionState: 'connected', sendRaw }),
+    );
+    await waitForConnect(result);
+
+    mockDeviceFs.list.mockClear();
+    const entries = [
+      { name: 'a.py', isDir: false },
+      { name: 'sub', isDir: true },
+    ];
+    mockDeviceFs.list.mockResolvedValueOnce(entries);
+
+    let received: typeof entries | undefined;
+    await act(async () => {
+      received = await result.current.list('/lib');
+    });
+    expect(received).toEqual(entries);
+    expect(mockDeviceFs.list).toHaveBeenCalledWith('/lib');
+    // Calling list directly does not auto-merge into the tree.
+    expect(result.current.tree!.children).toHaveLength(0);
+  });
+
+  it('throws when not connected', async () => {
+    const sendRaw = makeSendRaw();
+    const { result } = renderHook(() =>
+      useDeviceFs({ connectionState: 'disconnected', sendRaw }),
+    );
+    await expect(result.current.list('/x')).rejects.toThrow(/not connected/i);
+  });
+});
+
 describe('useDeviceFs read pass-through', () => {
   it('readText delegates to DeviceFs.readText', async () => {
     const sendRaw = makeSendRaw();
