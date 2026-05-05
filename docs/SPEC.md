@@ -6,7 +6,6 @@
 |-----|---------|-------------|
 | Web Serial API | Serial communication with microcontroller | Chromium-based browsers only |
 | File System Access API | Opening local files into the editor | Chromium-based browsers only |
-| Service Worker | PWA offline shell | All modern browsers |
 
 ## Component Architecture
 
@@ -73,7 +72,7 @@ Wraps CodeMirror 6.
 
 - **Bundler:** Vite 6.x (Rollup-based, esbuild for transforms)
 - **Entry point:** `index.html` at repo root references `src/main.ts` as a module script
-- **Static assets:** `public/` directory (manifest, icons, service worker) — served at `/` in dev, copied to `dist/` on build
+- **Static assets:** `public/` directory (manifest, icons, favicon) — served at `/` in dev, copied to `dist/` on build
 - **Output:** `dist/` — `index.html` + hashed JS bundle
 - **Dev server:** `npm run dev` → `http://localhost:5173` with HMR
 
