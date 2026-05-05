@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -30,6 +31,8 @@ interface DeviceFileNavigatorProps {
   onCreateFile: (parentPath: string, name: string) => Promise<void>;
   onCreateDir: (parentPath: string, name: string) => Promise<void>;
   onRename: (path: string, newName: string) => Promise<void>;
+  onDeleteFile: (path: string) => Promise<void>;
+  onDeleteDir: (path: string) => Promise<void>;
 }
 
 export function DeviceFileNavigator({
@@ -43,9 +46,12 @@ export function DeviceFileNavigator({
   onCreateFile,
   onCreateDir,
   onRename,
+  onDeleteFile,
+  onDeleteDir,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
   const [renaming, setRenaming] = useState<{ path: string } | null>(null);
+  const [deleting, setDeleting] = useState<{ path: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -78,6 +84,7 @@ export function DeviceFileNavigator({
     if (!isAvailable) {
       if (creating !== null) setCreating(null);
       if (renaming !== null) setRenaming(null);
+      if (deleting !== null) setDeleting(null);
     }
   }
 
@@ -85,6 +92,7 @@ export function DeviceFileNavigator({
     if (!expanded) onExpand(parentPath);
     setCreating({ path: parentPath, kind });
     setRenaming(null);
+    setDeleting(null);
     setContextMenu(null);
   };
 
@@ -102,6 +110,7 @@ export function DeviceFileNavigator({
   const startRename = (path: string) => {
     setRenaming({ path });
     setCreating(null);
+    setDeleting(null);
     setContextMenu(null);
   };
 
@@ -110,6 +119,24 @@ export function DeviceFileNavigator({
   const submitRename = async (path: string, newName: string) => {
     await onRename(path, newName);
     setRenaming(null);
+  };
+
+  const startDelete = (path: string) => {
+    setDeleting({ path });
+    setCreating(null);
+    setRenaming(null);
+    setContextMenu(null);
+  };
+
+  const cancelDelete = () => setDeleting(null);
+
+  const submitDelete = async (entry: DeviceTreeEntry) => {
+    if (entry.isDir) {
+      await onDeleteDir(entry.path);
+    } else {
+      await onDeleteFile(entry.path);
+    }
+    setDeleting(null);
   };
 
   const openContextMenu = (e: ReactMouseEvent, entry: DeviceTreeEntry) => {
@@ -159,6 +186,10 @@ export function DeviceFileNavigator({
             onStartRename={startRename}
             onCancelRename={cancelRename}
             onSubmitRename={submitRename}
+            deleting={deleting}
+            onStartDelete={startDelete}
+            onCancelDelete={cancelDelete}
+            onSubmitDelete={submitDelete}
             onContextMenu={openContextMenu}
           />
         )}
@@ -167,7 +198,7 @@ export function DeviceFileNavigator({
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={buildContextMenuItems(contextMenu.entry, startCreate, startRename)}
+          items={buildContextMenuItems(contextMenu.entry, startCreate, startRename, startDelete)}
         />
       )}
     </div>
@@ -188,6 +219,10 @@ interface TreeRowProps {
   onStartRename: (path: string) => void;
   onCancelRename: () => void;
   onSubmitRename: (path: string, newName: string) => Promise<void>;
+  deleting: { path: string } | null;
+  onStartDelete: (path: string) => void;
+  onCancelDelete: () => void;
+  onSubmitDelete: (entry: DeviceTreeEntry) => Promise<void>;
   onContextMenu: (e: ReactMouseEvent, entry: DeviceTreeEntry) => void;
 }
 
@@ -205,10 +240,15 @@ function TreeRow({
   onStartRename,
   onCancelRename,
   onSubmitRename,
+  deleting,
+  onStartDelete,
+  onCancelDelete,
+  onSubmitDelete,
   onContextMenu,
 }: TreeRowProps) {
   const indent = 8 + depth * 12;
   const isRenaming = renaming?.path === entry.path;
+  const isDeleting = deleting?.path === entry.path;
   const isRoot = entry.path === '/';
   if (entry.isDir) {
     const toggle = () => (entry.expanded ? onCollapse(entry.path) : onExpand(entry.path));
@@ -220,6 +260,13 @@ function TreeRow({
             depth={depth}
             onCancel={onCancelRename}
             onSubmit={onSubmitRename}
+          />
+        ) : isDeleting ? (
+          <DeleteConfirmRow
+            entry={entry}
+            depth={depth}
+            onCancel={onCancelDelete}
+            onSubmit={onSubmitDelete}
           />
         ) : (
           <div
@@ -262,17 +309,30 @@ function TreeRow({
               <Plus size={12} />
             </button>
             {!isRoot && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStartRename(entry.path);
-                }}
-                title="Rename"
-                aria-label={`Rename ${entry.name}`}
-                className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
-              >
-                <Pencil size={12} />
-              </button>
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartRename(entry.path);
+                  }}
+                  title="Rename"
+                  aria-label={`Rename ${entry.name}`}
+                  className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartDelete(entry.path);
+                  }}
+                  title="Delete"
+                  aria-label={`Delete ${entry.name}`}
+                  className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </>
             )}
           </div>
         )}
@@ -303,6 +363,10 @@ function TreeRow({
                 onStartRename={onStartRename}
                 onCancelRename={onCancelRename}
                 onSubmitRename={onSubmitRename}
+                deleting={deleting}
+                onStartDelete={onStartDelete}
+                onCancelDelete={onCancelDelete}
+                onSubmitDelete={onSubmitDelete}
                 onContextMenu={onContextMenu}
               />
             ))}
@@ -318,6 +382,16 @@ function TreeRow({
         depth={depth}
         onCancel={onCancelRename}
         onSubmit={onSubmitRename}
+      />
+    );
+  }
+  if (isDeleting) {
+    return (
+      <DeleteConfirmRow
+        entry={entry}
+        depth={depth}
+        onCancel={onCancelDelete}
+        onSubmit={onSubmitDelete}
       />
     );
   }
@@ -341,9 +415,20 @@ function TreeRow({
         }}
         title="Rename"
         aria-label={`Rename ${entry.name}`}
-        className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+        className="p-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
       >
         <Pencil size={12} />
+      </button>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onStartDelete(entry.path);
+        }}
+        title="Delete"
+        aria-label={`Delete ${entry.name}`}
+        className="p-1 mr-1 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-foreground/10 transition-opacity"
+      >
+        <Trash2 size={12} />
       </button>
     </div>
   );
@@ -542,6 +627,82 @@ function RenameEntryInput({ entry, depth, onCancel, onSubmit }: RenameEntryInput
   );
 }
 
+interface DeleteConfirmRowProps {
+  entry: DeviceTreeEntry;
+  depth: number;
+  onCancel: () => void;
+  onSubmit: (entry: DeviceTreeEntry) => Promise<void>;
+}
+
+function DeleteConfirmRow({ entry, depth, onCancel, onSubmit }: DeleteConfirmRowProps) {
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const indent = 8 + depth * 12;
+  const isFile = !entry.isDir;
+  const Icon = isFile ? File : Folder;
+
+  // Default the focus to Confirm so Enter accepts and Esc cancels without
+  // the user having to click into the row first.
+  useEffect(() => {
+    confirmRef.current?.focus();
+  }, []);
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onSubmit(entry);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
+  return (
+    <div
+      style={{ paddingLeft: isFile ? indent + 12 : indent }}
+      className="flex flex-col py-0.5 pr-2 gap-0.5"
+      onKeyDown={onKeyDown}
+    >
+      <div className="flex items-center gap-1.5">
+        {!isFile &&
+          (entry.isDir && entry.expanded ? (
+            <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+          ))}
+        <Icon size={14} className="shrink-0 text-muted-foreground" />
+        <span className="flex-1 min-w-0 truncate text-sm">Delete {entry.name}?</span>
+        <button
+          ref={confirmRef}
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="px-2 py-0.5 text-xs rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Delete
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={submitting}
+          className="px-2 py-0.5 text-xs rounded hover:bg-accent transition-colors disabled:opacity-40"
+        >
+          Cancel
+        </button>
+      </div>
+      {submitError && <div className="text-xs text-destructive pl-5">{submitError}</div>}
+    </div>
+  );
+}
+
 interface ContextMenuItem {
   label: string;
   onClick: () => void;
@@ -551,6 +712,7 @@ function buildContextMenuItems(
   entry: DeviceTreeEntry,
   startCreate: (parentPath: string, kind: CreateKind, expanded: boolean) => void,
   startRename: (path: string) => void,
+  startDelete: (path: string) => void,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (entry.isDir) {
@@ -565,6 +727,7 @@ function buildContextMenuItems(
   }
   if (entry.path !== '/') {
     items.push({ label: 'Rename', onClick: () => startRename(entry.path) });
+    items.push({ label: 'Delete', onClick: () => startDelete(entry.path) });
   }
   return items;
 }

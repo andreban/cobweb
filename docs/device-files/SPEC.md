@@ -166,10 +166,10 @@ If the affected directory is not currently expanded in the tree, the refresh is 
 `removeDir(path, { recursive: true })` walks host-side: list the directory, recurse into subdirectories, `removeFile` each file, then `removeDir` the now-empty directory bottom-up. Host-side walk is preferred over a single device-side recursive snippet because (a) it shares one error surface with the rest of `DeviceFs`, (b) progress is observable per-step (we can update `busy` / status text), and (c) it avoids constructing a multi-line snippet on the device.
 
 The `<DeviceFileNavigator>` Delete action:
-1. Calls `stat(path)` to detect whether the target is a file or directory.
+1. Dispatches by the tree entry's `isDir` flag (already authoritative — the tree is refreshed after every mutation, so a separate `stat` round-trip would be redundant).
 2. For a file → confirm "Delete X?" → `removeFile`.
-3. For an empty directory → confirm "Delete X?" → `removeDir(path)`.
-4. For a non-empty directory → confirm "Delete X and N item(s) inside?" with item count from a quick `list` → `removeDir(path, { recursive: true })`.
+3. For an empty directory → confirm "Delete X?" → `removeDir(path)`. The device's "directory not empty" error surfaces inline next to the confirmation when the directory is in fact non-empty.
+4. For a non-empty directory (recursive flow, separate phase) → confirm "Delete X and N item(s) inside?" with item count from a quick `list` → `removeDir(path, { recursive: true })`.
 
 The N-item count is for the immediate children only (no full recursive count); the wording is chosen to avoid implying the count is recursive.
 
