@@ -1,27 +1,72 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useReplConnection } from './useReplConnection';
 import { ReplDisconnectedError, ReplInterface } from '../ReplInterface';
 
-function makeMockRepl(): ReplInterface {
+const LAST_DEVICE_KEY = 'cobweb:lastDevice';
+
+function makeMockRepl(
+  info: { usbVendorId?: number; usbProductId?: number } | null = {
+    usbVendorId: 0x2e8a,
+    usbProductId: 0x0005,
+  },
+): ReplInterface {
   const et = new EventTarget();
   return Object.assign(et, {
     disconnect: vi.fn().mockResolvedValue(undefined),
     reset: vi.fn().mockResolvedValue(undefined),
     sendRaw: vi.fn().mockResolvedValue({stdout: '', stderr: ''}),
     send: vi.fn().mockResolvedValue(undefined),
+    getPortInfo: vi.fn().mockReturnValue(info),
   }) as unknown as ReplInterface;
+}
+
+function fakePort(usbVendorId?: number, usbProductId?: number): SerialPort {
+  return {
+    getInfo: () => ({usbVendorId, usbProductId}),
+  } as unknown as SerialPort;
+}
+
+/**
+ * Installs a fake `navigator.serial` exposing only `getPorts`. Returns a
+ * teardown that restores the original.
+ */
+function installFakeSerial(ports: SerialPort[]): () => void {
+  const nav = navigator as unknown as { serial?: unknown };
+  const original = Object.prototype.hasOwnProperty.call(nav, 'serial')
+    ? nav.serial
+    : undefined;
+  Object.defineProperty(navigator, 'serial', {
+    value: { getPorts: vi.fn().mockResolvedValue(ports) },
+    configurable: true,
+  });
+  return () => {
+    if (original === undefined) {
+      delete nav.serial;
+    } else {
+      Object.defineProperty(navigator, 'serial', {
+        value: original,
+        configurable: true,
+      });
+    }
+  };
 }
 
 describe('useReplConnection', () => {
   let mockRepl: ReplInterface;
 
   beforeEach(() => {
+    localStorage.clear();
     mockRepl = makeMockRepl();
     vi.spyOn(ReplInterface, 'connect').mockResolvedValue(mockRepl);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
   });
 
   it('starts disconnected', () => {
@@ -190,6 +235,175 @@ describe('useReplConnection', () => {
       const { result } = renderHook(() => useReplConnection());
       await act(() => result.current.connect());
       await expect(result.current.reset()).rejects.toBe(boom);
+    });
+  });
+
+  describe('persistence — last device', () => {
+    it('writes USB IDs to localStorage after a successful connect', async () => {
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      const stored = localStorage.getItem(LAST_DEVICE_KEY);
+      expect(stored).not.toBeNull();
+      expect(JSON.parse(stored!)).toEqual({
+        usbVendorId: 0x2e8a,
+        usbProductId: 0x0005,
+      });
+    });
+
+    it('does not write when the port reports no USB IDs', async () => {
+      mockRepl = makeMockRepl({});
+      vi.spyOn(ReplInterface, 'connect').mockResolvedValue(mockRepl);
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      expect(localStorage.getItem(LAST_DEVICE_KEY)).toBeNull();
+    });
+
+    it('does not clear the persisted entry on user-initiated disconnect', async () => {
+      const { result } = renderHook(() => useReplConnection());
+      await act(() => result.current.connect());
+      await act(() => result.current.disconnect());
+      const stored = localStorage.getItem(LAST_DEVICE_KEY);
+      expect(stored).not.toBeNull();
+      expect(JSON.parse(stored!)).toEqual({
+        usbVendorId: 0x2e8a,
+        usbProductId: 0x0005,
+      });
+    });
+  });
+
+  describe('auto-reconnect on mount', () => {
+    beforeEach(() => {
+      localStorage.setItem(
+        LAST_DEVICE_KEY,
+        JSON.stringify({usbVendorId: 0x2e8a, usbProductId: 0x0005}),
+      );
+    });
+
+    it('connects when exactly one granted port matches the persisted IDs', async () => {
+      const matching = fakePort(0x2e8a, 0x0005);
+      const teardown = installFakeSerial([matching]);
+      const connectToPort = vi
+        .spyOn(ReplInterface, 'connectToPort')
+        .mockResolvedValue(mockRepl);
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        // Allow the mount-time effect's promise chain to settle.
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(connectToPort).toHaveBeenCalledWith(matching);
+        expect(result.current.connectionState).toBe('connected');
+      } finally {
+        teardown();
+      }
+    });
+
+    it('does nothing when zero granted ports match', async () => {
+      const teardown = installFakeSerial([fakePort(0x1234, 0x5678)]);
+      const connectToPort = vi.spyOn(ReplInterface, 'connectToPort');
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(connectToPort).not.toHaveBeenCalled();
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        teardown();
+      }
+    });
+
+    it('does nothing when multiple granted ports match (ambiguous)', async () => {
+      const teardown = installFakeSerial([
+        fakePort(0x2e8a, 0x0005),
+        fakePort(0x2e8a, 0x0005),
+      ]);
+      const connectToPort = vi.spyOn(ReplInterface, 'connectToPort');
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(connectToPort).not.toHaveBeenCalled();
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        teardown();
+      }
+    });
+
+    it('does nothing when no device is persisted', async () => {
+      localStorage.removeItem(LAST_DEVICE_KEY);
+      const teardown = installFakeSerial([fakePort(0x2e8a, 0x0005)]);
+      const connectToPort = vi.spyOn(ReplInterface, 'connectToPort');
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(connectToPort).not.toHaveBeenCalled();
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        teardown();
+      }
+    });
+
+    it('swallows errors thrown by connectToPort', async () => {
+      const teardown = installFakeSerial([fakePort(0x2e8a, 0x0005)]);
+      vi.spyOn(ReplInterface, 'connectToPort').mockRejectedValue(
+        new Error('port stale'),
+      );
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        teardown();
+      }
+    });
+
+    it('is a no-op when navigator.serial is unavailable', async () => {
+      const nav = navigator as unknown as { serial?: unknown };
+      const original = nav.serial;
+      delete nav.serial;
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        if (original !== undefined) {
+          Object.defineProperty(navigator, 'serial', {
+            value: original,
+            configurable: true,
+          });
+        }
+      }
+    });
+
+    it('ignores malformed JSON in the persisted entry', async () => {
+      localStorage.setItem(LAST_DEVICE_KEY, '{not json');
+      const teardown = installFakeSerial([fakePort(0x2e8a, 0x0005)]);
+      const connectToPort = vi.spyOn(ReplInterface, 'connectToPort');
+      try {
+        const { result } = renderHook(() => useReplConnection());
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        expect(connectToPort).not.toHaveBeenCalled();
+        expect(result.current.connectionState).toBe('disconnected');
+      } finally {
+        teardown();
+      }
     });
   });
 

@@ -537,6 +537,17 @@ export class ReplInterface extends EventTarget {
     return exchange;
   }
 
+  /**
+   * USB vendor + product IDs of the underlying port, used to recognise the
+   * same physical device across reloads. Either field may be undefined for
+   * non-USB transports (Bluetooth serial, virtual ports).
+   */
+  getPortInfo(): { usbVendorId?: number; usbProductId?: number } | null {
+    if (!this.port) return null;
+    const info = this.port.getInfo();
+    return {usbVendorId: info.usbVendorId, usbProductId: info.usbProductId};
+  }
+
   static async connect(
         baudRate: number = 115200,
         dataBits: number = 8,
@@ -545,6 +556,20 @@ export class ReplInterface extends EventTarget {
       throw new Error('The Web Serial API is not supported');
     }
     const port = await navigator.serial!.requestPort();
+    return ReplInterface.connectToPort(port, baudRate, dataBits, stopBits);
+  }
+
+  /**
+   * Opens an explicitly-supplied port and returns a `ReplInterface` wired up
+   * to it. Mirrors `connect()` but skips the `requestPort()` chooser, so
+   * callers (e.g. auto-reconnect on load) can use ports already granted via
+   * `navigator.serial.getPorts()`.
+   */
+  static async connectToPort(
+        port: SerialPort,
+        baudRate: number = 115200,
+        dataBits: number = 8,
+        stopBits: number = 1): Promise<ReplInterface> {
     await port.open({
       baudRate: baudRate,
       dataBits: dataBits,

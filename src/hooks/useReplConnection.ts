@@ -1,10 +1,33 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReplDisconnectedError, ReplInterface, type RunResult } from '../ReplInterface';
 
 const MAX_HISTORY_LINES = 100;
+const LAST_DEVICE_KEY = 'cobweb:lastDevice';
+
+interface PersistedDevice {
+  usbVendorId: number;
+  usbProductId: number;
+}
+
+function readPersistedDevice(): PersistedDevice | null {
+  try {
+    const raw = localStorage.getItem(LAST_DEVICE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedDevice>;
+    if (
+      typeof parsed?.usbVendorId !== 'number' ||
+      typeof parsed?.usbProductId !== 'number'
+    ) {
+      return null;
+    }
+    return {usbVendorId: parsed.usbVendorId, usbProductId: parsed.usbProductId};
+  } catch {
+    return null;
+  }
+}
 
 export type ConnectionState = 'disconnected' | 'connected';
 
@@ -31,8 +54,7 @@ export function useReplConnection() {
     }
   }, []);
 
-  const connect = useCallback(async () => {
-    const repl = await ReplInterface.connect();
+  const wireRepl = useCallback((repl: ReplInterface) => {
     const dataListener = (e: Event) => handleData((e as CustomEvent<Uint8Array>).detail);
     // Fires when the device-side connection drops (cable yanked, USB error,
     // EOF). Explicit user-initiated disconnect removes this before it can fire.
@@ -53,7 +75,67 @@ export function useReplConnection() {
     disconnectListenerRef.current = disconnectListener;
     replRef.current = repl;
     setConnectionState('connected');
+
+    // Persist the USB IDs so the next page load can auto-reconnect to the
+    // same physical device. Quota or unavailable storage is non-fatal — we
+    // just lose the auto-reconnect for this session.
+    const info = repl.getPortInfo();
+    if (info?.usbVendorId !== undefined && info?.usbProductId !== undefined) {
+      try {
+        localStorage.setItem(
+          LAST_DEVICE_KEY,
+          JSON.stringify({
+            usbVendorId: info.usbVendorId,
+            usbProductId: info.usbProductId,
+          }),
+        );
+      } catch {
+        // ignore
+      }
+    }
   }, [handleData]);
+
+  const connect = useCallback(async () => {
+    const repl = await ReplInterface.connect();
+    wireRepl(repl);
+  }, [wireRepl]);
+
+  // Auto-reconnect on mount: if exactly one port granted by the browser
+  // matches the persisted USB IDs, open it silently. Zero / multiple matches
+  // do nothing — the user can click Connect manually.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!navigator.serial) return;
+      const target = readPersistedDevice();
+      if (!target) return;
+      try {
+        const ports = await navigator.serial.getPorts();
+        const matches = ports.filter((p) => {
+          const info = p.getInfo();
+          return (
+            info.usbVendorId === target.usbVendorId &&
+            info.usbProductId === target.usbProductId
+          );
+        });
+        if (matches.length !== 1) return;
+        if (cancelled || replRef.current) return;
+        const repl = await ReplInterface.connectToPort(matches[0]);
+        if (cancelled || replRef.current) {
+          // Raced with unmount or a manual connect; discard the orphan.
+          await repl.disconnect().catch(() => undefined);
+          return;
+        }
+        wireRepl(repl);
+      } catch {
+        // Stale port, permission revoked, device removed mid-load, etc.
+        // Stay disconnected; the user can click Connect manually.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wireRepl]);
 
   const disconnect = useCallback(async () => {
     const repl = replRef.current;
