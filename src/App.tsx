@@ -157,6 +157,13 @@ export function App() {
     [],
   );
 
+  const handleMoveOnDevice = useCallback(
+    async (from: string, to: string): Promise<void> => {
+      await deviceRename(from, to);
+    },
+    [deviceRename],
+  );
+
   const handleSave = useCallback(async (): Promise<'saved' | 'cancelled' | 'noop'> => {
     return saveEditor(origin, getContent(), setOriginAndContent, deviceWriteText);
   }, [origin, getContent, setOriginAndContent, deviceWriteText]);
@@ -358,6 +365,7 @@ export function App() {
                     onCountChildren={handleCountDeviceChildren}
                     onUpload={handleUploadToDevice}
                     onDownloadRequest={handleDownloadFromDevice}
+                    onMoveOnDevice={handleMoveOnDevice}
                     onShowMessage={handleShowDeviceMessage}
                   />,
                 ]}

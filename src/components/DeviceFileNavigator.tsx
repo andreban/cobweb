@@ -20,7 +20,7 @@ import type {
   MouseEvent as ReactMouseEvent,
 } from 'react';
 import type { DeviceTreeEntry, DeviceTreeNode } from '../hooks/useDeviceFs';
-import { dirname, validateName } from '../lib/devicePath';
+import { basename, dirname, join, validateName } from '../lib/devicePath';
 import {
   DEVICE_PATH_MIME,
   LOCAL_PATH_MIME,
@@ -45,6 +45,7 @@ interface DeviceFileNavigatorProps {
   onCountChildren: (path: string) => Promise<number>;
   onUpload: (parentPath: string, files: File[]) => Promise<void>;
   onDownloadRequest: (path: string) => Promise<void>;
+  onMoveOnDevice: (from: string, to: string) => Promise<void>;
   onShowMessage: (message: string) => void;
 }
 
@@ -64,6 +65,7 @@ export function DeviceFileNavigator({
   onCountChildren,
   onUpload,
   onDownloadRequest,
+  onMoveOnDevice,
   onShowMessage,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
@@ -195,7 +197,11 @@ export function DeviceFileNavigator({
   const handleDragOverRow = (e: ReactDragEvent<HTMLElement>, effectiveTarget: string) => {
     if (!isAcceptableDrop(e.dataTransfer)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    // Device-path drags are moves within the device; everything else is a
+    // copy from the local pane / OS.
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes(DEVICE_PATH_MIME)
+      ? 'move'
+      : 'copy';
     if (dragOverPath !== effectiveTarget) setDragOverPath(effectiveTarget);
   };
 
@@ -207,6 +213,22 @@ export function DeviceFileNavigator({
     e.stopPropagation();
     setDragOverPath(null);
     const dt = e.dataTransfer;
+
+    const devicePath = dt.getData(DEVICE_PATH_MIME);
+    if (devicePath) {
+      // No-op when the user drops onto the same parent — `rename` to the
+      // same path would round-trip to the device for nothing.
+      if (dirname(devicePath) === effectiveTarget) return;
+      const to = join(effectiveTarget, basename(devicePath));
+      try {
+        await onMoveOnDevice(devicePath, to);
+      } catch (err) {
+        onShowMessage(
+          `Move failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return;
+    }
 
     if (hasFolderItem(dt)) {
       onShowMessage(
@@ -547,7 +569,10 @@ function TreeRow({
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData(DEVICE_PATH_MIME, entry.path);
-          e.dataTransfer.effectAllowed = 'copy';
+          // Copy → drop on local pane (download); move → drop on a device
+          // folder (rename). The destination's `dropEffect` selects between
+          // them at drop time.
+          e.dataTransfer.effectAllowed = 'copyMove';
         }}
         onClick={() => onOpenFile(entry.path)}
         style={{ paddingLeft: indent + 12 }}
@@ -926,7 +951,11 @@ function buildContextMenuItems(
 }
 
 function isAcceptableDrop(dt: DataTransfer): boolean {
-  return dt.types.includes(LOCAL_PATH_MIME) || dt.types.includes('Files');
+  return (
+    dt.types.includes(LOCAL_PATH_MIME) ||
+    dt.types.includes(DEVICE_PATH_MIME) ||
+    dt.types.includes('Files')
+  );
 }
 
 function hasFolderItem(dt: DataTransfer): boolean {
