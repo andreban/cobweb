@@ -384,6 +384,7 @@ Rename is omitted from agent tools for v1 (it's rarely a useful agent action and
 - `src/lib/devicePath.ts`
 - `src/hooks/useDeviceFs.ts`
 - `src/components/DeviceFileNavigator.tsx`
+- `src/components/EditorBanner.tsx` — inline strip for unsaved-changes confirmation and device-open errors.
 - `src/agent/tools/ListDeviceFilesTool.ts`
 - `src/agent/tools/ReadDeviceFileTool.ts`
 - `src/agent/tools/WriteDeviceFileTool.ts`

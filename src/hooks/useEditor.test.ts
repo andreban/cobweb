@@ -57,6 +57,7 @@ vi.mock('codemirror', () => {
       return [];
     },
   };
+  (EditorViewMock as unknown as { theme: (spec: unknown) => unknown[] }).theme = () => [];
   return { EditorView: EditorViewMock, basicSetup: [] };
 });
 

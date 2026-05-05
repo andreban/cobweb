@@ -8,10 +8,14 @@ export type SaveEditorResult = 'saved' | 'cancelled' | 'noop';
 export async function saveEditor(
   origin: EditorOrigin,
   content: string,
-  setOriginAndContent: (origin: EditorOrigin, content: string) => void
+  setOriginAndContent: (origin: EditorOrigin, content: string) => void,
+  writeDevice?: (path: string, text: string) => Promise<void>
 ): Promise<SaveEditorResult> {
   if (origin.kind === 'device') {
-    return 'noop';
+    if (!writeDevice) return 'noop';
+    await writeDevice(origin.path, content);
+    setOriginAndContent(origin, content);
+    return 'saved';
   }
 
   if (origin.kind === 'local') {
