@@ -38,13 +38,24 @@ export function App() {
     useEditor(theme);
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
-  const { readBytes: deviceReadBytes, writeText: deviceWriteText } = deviceFsHook;
+  const {
+    readBytes: deviceReadBytes,
+    writeText: deviceWriteText,
+    mkdir: deviceMkdir,
+  } = deviceFsHook;
 
   const handleCreateDeviceFile = useCallback(
     async (parentPath: string, name: string) => {
       await deviceWriteText(join(parentPath, name), '');
     },
     [deviceWriteText],
+  );
+
+  const handleCreateDeviceDir = useCallback(
+    async (parentPath: string, name: string) => {
+      await deviceMkdir(join(parentPath, name));
+    },
+    [deviceMkdir],
   );
 
   const deviceFs = useMemo(
@@ -245,6 +256,7 @@ export function App() {
                       );
                     }}
                     onCreateFile={handleCreateDeviceFile}
+                    onCreateDir={handleCreateDeviceDir}
                   />,
                 ]}
               </SplitPane>,
