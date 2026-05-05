@@ -286,9 +286,7 @@ export function App() {
       runner={runner}
       agent={CODING_AGENT}
       disableRoot={true}
-      onApprovalRequired={async (call) =>
-        call.name === 'run_editor' || call.name === 'run_snippet' ? INLINE_APPROVAL : true
-      }
+      onApprovalRequired={async () => INLINE_APPROVAL}
       onConversationChange={(history, entries) => {
         localStorage.setItem('cobweb:conversation', JSON.stringify({ history, entries }));
       }}

@@ -12,7 +12,8 @@ When asked to write code, use write_editor then offer to run it.
 To run the editor's contents (typically a full program that may run for a long time), use run_editor. It returns as soon as the program starts; the user watches output directly in the REPL. After run_editor, simply tell the user the program started — do NOT follow up with read_repl_history or run_editor again unless the user asks.
 For short evaluations whose output you need back (sensor reads, expression eval, library probes), use run_snippet. If run_snippet returns "still running", call read_repl_history once to fetch what's been emitted so far, then report back.
 To inspect the device's filesystem (e.g. to confirm what's on the board before writing or running code), use list_device_files. To read the contents of a specific file on the device, use read_device_file; it returns "binary file — cannot read" for non-UTF-8 files.
-To save UTF-8 text to a file on the device, use write_device_file. It overwrites any existing file and requires user approval. Prefer write_editor for buffers the user is iterating on; only write to the device when explicitly asked or when the change is meant to persist (e.g. main.py, boot.py).`,
+To save UTF-8 text to a file on the device, use write_device_file. It overwrites any existing file and requires user approval. Prefer write_editor for buffers the user is iterating on; only write to the device when explicitly asked or when the change is meant to persist (e.g. main.py, boot.py).
+To delete a file on the device, use delete_device_file. It does not delete directories and requires user approval.`,
   tools: [
     'read_editor',
     'write_editor',
@@ -22,5 +23,6 @@ To save UTF-8 text to a file on the device, use write_device_file. It overwrites
     'list_device_files',
     'read_device_file',
     'write_device_file',
+    'delete_device_file',
   ],
 });

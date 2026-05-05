@@ -23,6 +23,7 @@ describe('wireTools', () => {
     wireTools(tools, makeBindings());
     const names = tools.getTools().map((t) => t.name).sort();
     expect(names).toEqual([
+      'delete_device_file',
       'list_device_files',
       'read_device_file',
       'read_editor',
@@ -38,7 +39,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(8);
+    expect(tools.getTools()).toHaveLength(9);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
