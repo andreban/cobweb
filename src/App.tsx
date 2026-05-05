@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentProvider, INLINE_APPROVAL } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
@@ -21,6 +21,7 @@ import { createAdapter } from './providers/factory';
 import { CODING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
 import { DeviceFs } from './DeviceFs';
+import { saveEditor } from './lib/saveEditor';
 
 const models = createModels();
 
@@ -29,12 +30,29 @@ export function App() {
     useReplConnection();
   const { config, save: saveConfig, clear: clearConfig } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
-  const { editorRef, getContent, setContent } = useEditor(theme);
+  const { editorRef, getContent, setContent, origin, setOriginAndContent } = useEditor(theme);
 
   const deviceFs = useMemo(
     () => (connectionState === 'connected' ? new DeviceFs(runCode) : null),
     [connectionState, runCode],
   );
+
+  const handleSave = useCallback(() => {
+    saveEditor(origin, getContent(), setOriginAndContent).catch((err) => {
+      console.error('Save failed:', err);
+    });
+  }, [origin, getContent, setOriginAndContent]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleSave]);
 
   useEffect(() => {
     wireTools(models.tools, {
@@ -95,6 +113,8 @@ export function App() {
             // promise rejection.
             runCode(getContent()).catch((err) => console.error('Run failed:', err));
           }}
+          onSave={handleSave}
+          saveEnabled={origin.kind !== 'device'}
           onOpenSettings={() => setIsSettingsOpen(true)}
           isAgentConfigured={config !== null}
           themePreference={themePreference}

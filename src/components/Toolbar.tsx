@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { Monitor, Moon, Play, Plug, RotateCcw, Settings, Sun, Unplug } from 'lucide-react';
+import { Monitor, Moon, Play, Plug, RotateCcw, Save, Settings, Sun, Unplug } from 'lucide-react';
 
 type ConnectionState = 'disconnected' | 'connected';
 type ThemePreference = 'light' | 'dark' | 'system';
@@ -12,11 +12,18 @@ interface ToolbarProps {
   onDisconnect: () => void;
   onReset: () => void;
   onRun: () => void;
+  onSave: () => void;
+  saveEnabled: boolean;
   onOpenSettings: () => void;
   isAgentConfigured: boolean;
   themePreference: ThemePreference;
   onCycleTheme: () => void;
 }
+
+const SAVE_SHORTCUT_LABEL =
+  typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/i.test(navigator.platform)
+    ? '⌘S'
+    : 'Ctrl+S';
 
 const THEME_LABEL: Record<ThemePreference, string> = {
   light: 'Theme: light (click for dark)',
@@ -30,13 +37,14 @@ export function Toolbar({
   onDisconnect,
   onReset,
   onRun,
+  onSave,
+  saveEnabled,
   onOpenSettings,
   themePreference,
   onCycleTheme,
 }: ToolbarProps) {
   const connected = connectionState === 'connected';
-  const ThemeIcon =
-    themePreference === 'light' ? Sun : themePreference === 'dark' ? Moon : Monitor;
+  const ThemeIcon = themePreference === 'light' ? Sun : themePreference === 'dark' ? Moon : Monitor;
 
   return (
     <div className="flex items-center gap-2 h-10 px-3 bg-muted border-b border-border shrink-0">
@@ -81,6 +89,16 @@ export function Toolbar({
         >
           <Play size={14} />
           Run
+        </button>
+
+        <button
+          onClick={onSave}
+          disabled={!saveEnabled}
+          title={`Save (${SAVE_SHORTCUT_LABEL})`}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Save size={14} />
+          Save
         </button>
       </div>
 
