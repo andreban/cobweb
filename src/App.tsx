@@ -25,6 +25,7 @@ import { CODING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
 import { DeviceFs } from './DeviceFs';
 import { saveEditor } from './lib/saveEditor';
+import { join } from './lib/devicePath';
 
 const models = createModels();
 
@@ -38,6 +39,13 @@ export function App() {
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
   const { readBytes: deviceReadBytes, writeText: deviceWriteText } = deviceFsHook;
+
+  const handleCreateDeviceFile = useCallback(
+    async (parentPath: string, name: string) => {
+      await deviceWriteText(join(parentPath, name), '');
+    },
+    [deviceWriteText],
+  );
 
   const deviceFs = useMemo(
     () => (connectionState === 'connected' ? new DeviceFs(runCode) : null),
@@ -236,6 +244,7 @@ export function App() {
                         console.error('Open device file failed:', err),
                       );
                     }}
+                    onCreateFile={handleCreateDeviceFile}
                   />,
                 ]}
               </SplitPane>,
