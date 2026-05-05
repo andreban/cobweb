@@ -12,6 +12,8 @@ const defaults = {
   onDisconnect: vi.fn(),
   onReset: vi.fn(),
   onRun: vi.fn(),
+  onSave: vi.fn(),
+  saveEnabled: true,
   onOpenSettings: vi.fn(),
   isAgentConfigured: false,
   themePreference: 'light' as const,
@@ -69,6 +71,20 @@ describe('Toolbar', () => {
     render(<Toolbar {...defaults} onCycleTheme={onCycleTheme} />);
     await userEvent.click(screen.getByTitle(/Theme:/));
     expect(onCycleTheme).toHaveBeenCalledOnce();
+  });
+
+  it('renders the Save button and calls onSave when clicked', async () => {
+    const onSave = vi.fn();
+    render(<Toolbar {...defaults} onSave={onSave} />);
+    const saveButton = screen.getByRole('button', { name: /Save/ });
+    expect(saveButton).not.toBeDisabled();
+    await userEvent.click(saveButton);
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  it('disables Save when saveEnabled is false', () => {
+    render(<Toolbar {...defaults} saveEnabled={false} />);
+    expect(screen.getByRole('button', { name: /Save/ })).toBeDisabled();
   });
 
   it('reflects each theme preference in the button title', () => {
