@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react';
-import { useState } from 'react';
-import type { DragEvent as ReactDragEvent } from 'react';
+import { useCallback, useImperativeHandle, useState } from 'react';
+import type { DragEvent as ReactDragEvent, RefObject } from 'react';
+import { basename } from '../lib/devicePath';
 import {
+  DEVICE_PATH_MIME,
   LOCAL_PATH_MIME,
   clearLocalDragSource,
   registerLocalDragSource,
@@ -26,12 +28,30 @@ interface LocalTreeFile {
 
 type LocalTreeEntry = LocalTreeNode | LocalTreeFile;
 
-interface FileNavigatorProps {
-  onFileSelected: (content: string) => void;
+export interface FileNavigatorHandle {
+  /**
+   * Download a file from the device into the open local folder. Used by the
+   * device pane's right-click "Download" so the local pane stays the single
+   * owner of the local-FS handle and tree state.
+   */
+  downloadFromDevice(devicePath: string): Promise<void>;
 }
 
-export function FileNavigator({ onFileSelected }: FileNavigatorProps) {
+interface FileNavigatorProps {
+  onFileSelected: (content: string) => void;
+  onDeviceReadBytes: (path: string) => Promise<Uint8Array>;
+  onShowMessage: (message: string) => void;
+  ref?: RefObject<FileNavigatorHandle | null>;
+}
+
+export function FileNavigator({
+  onFileSelected,
+  onDeviceReadBytes,
+  onShowMessage,
+  ref,
+}: FileNavigatorProps) {
   const [root, setRoot] = useState<LocalTreeNode | null>(null);
+  const [isDeviceDragOver, setIsDeviceDragOver] = useState(false);
 
   const openDirectory = async () => {
     const dirHandle = await window.showDirectoryPicker();
@@ -65,8 +85,73 @@ export function FileNavigator({ onFileSelected }: FileNavigatorProps) {
     onFileSelected(content);
   };
 
+  const downloadFromDevice = useCallback(
+    async (devicePath: string): Promise<void> => {
+      if (!root) {
+        onShowMessage('Open a local folder first.');
+        return;
+      }
+      const name = basename(devicePath);
+      const bytes = await onDeviceReadBytes(devicePath);
+      const fileHandle = await root.handle.getFileHandle(name, { create: true });
+      const writable = await fileHandle.createWritable();
+      try {
+        await writable.write(bytes);
+      } finally {
+        await writable.close();
+      }
+      // Surface the new (or overwritten) file in the tree without losing the
+      // expansion state of unrelated subtrees: re-list root and merge.
+      const refreshed = await loadChildren(root.handle);
+      setRoot((r) => (r ? mergeRootChildren(r, refreshed) : r));
+    },
+    [root, onDeviceReadBytes, onShowMessage],
+  );
+
+  useImperativeHandle(ref, () => ({ downloadFromDevice }), [downloadFromDevice]);
+
+  const acceptsDeviceDrop = (dt: DataTransfer): boolean =>
+    dt.types.includes(DEVICE_PATH_MIME);
+
+  const handleDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!acceptsDeviceDrop(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDeviceDragOver) setIsDeviceDragOver(true);
+  };
+
+  const handleDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget;
+    if (next instanceof Node && e.currentTarget.contains(next)) return;
+    setIsDeviceDragOver(false);
+  };
+
+  const handleDrop = async (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!acceptsDeviceDrop(e.dataTransfer)) return;
+    e.preventDefault();
+    setIsDeviceDragOver(false);
+    const devicePath = e.dataTransfer.getData(DEVICE_PATH_MIME);
+    if (!devicePath) return;
+    try {
+      await downloadFromDevice(devicePath);
+    } catch (err) {
+      onShowMessage(
+        `Download failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-muted/30">
+    <div
+      className={`flex flex-col h-full bg-muted/30 transition-colors ${
+        isDeviceDragOver ? 'outline outline-2 outline-primary/40 bg-primary/5' : ''
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(e) => {
+        void handleDrop(e);
+      }}
+    >
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
         <button
           onClick={openDirectory}
@@ -201,6 +286,26 @@ async function loadChildren(dirHandle: FileSystemDirectoryHandle): Promise<Local
 function compareEntries(a: LocalTreeEntry, b: LocalTreeEntry): number {
   if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
   return a.name.localeCompare(b.name);
+}
+
+// Re-list root preserves expansion state of unrelated folders by carrying
+// over the previous (expanded, children) for any directory child whose name
+// survived the re-list. New entries (e.g. the freshly downloaded file) appear
+// in their sorted position; deleted entries drop out.
+function mergeRootChildren(
+  root: LocalTreeNode,
+  refreshed: LocalTreeEntry[],
+): LocalTreeNode {
+  const oldByName = new Map<string, LocalTreeEntry>();
+  for (const c of root.children) oldByName.set(c.name, c);
+  const merged = refreshed.map((entry) => {
+    const old = oldByName.get(entry.name);
+    if (old && old.isDir && entry.isDir) {
+      return { ...entry, expanded: old.expanded, children: old.children };
+    }
+    return entry;
+  });
+  return { ...root, children: merged };
 }
 
 function findNode(root: LocalTreeNode, path: string[]): LocalTreeNode | null {

@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentProvider, INLINE_APPROVAL } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
@@ -9,7 +9,7 @@ import { StatusBar } from './components/StatusBar';
 import { Toolbar } from './components/Toolbar';
 import { ReplShell } from './components/ReplShell';
 import { CodeEditor } from './components/CodeEditor';
-import { FileNavigator } from './components/FileNavigator';
+import { FileNavigator, type FileNavigatorHandle } from './components/FileNavigator';
 import { DeviceFileNavigator } from './components/DeviceFileNavigator';
 import { EditorBanner } from './components/EditorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -140,6 +140,22 @@ export function App() {
   const handleShowDeviceMessage = useCallback((message: string) => {
     setBanner({ kind: 'message', message });
   }, []);
+
+  const localNavRef = useRef<FileNavigatorHandle | null>(null);
+
+  const handleDownloadFromDevice = useCallback(
+    async (path: string): Promise<void> => {
+      const handle = localNavRef.current;
+      if (!handle) {
+        // FileNavigator is always mounted, so a missing ref means React
+        // hasn't attached yet — surface a clear toast rather than swallowing.
+        setBanner({ kind: 'message', message: 'Local pane is not ready yet.' });
+        return;
+      }
+      await handle.downloadFromDevice(path);
+    },
+    [],
+  );
 
   const handleSave = useCallback(async (): Promise<'saved' | 'cancelled' | 'noop'> => {
     return saveEditor(origin, getContent(), setOriginAndContent, deviceWriteText);
@@ -308,7 +324,13 @@ export function App() {
                 onSizeChange={setLeftSplitSize}
               >
                 {[
-                  <FileNavigator key="files" onFileSelected={setContent} />,
+                  <FileNavigator
+                    key="files"
+                    ref={localNavRef}
+                    onFileSelected={setContent}
+                    onDeviceReadBytes={deviceReadBytes}
+                    onShowMessage={handleShowDeviceMessage}
+                  />,
                   <DeviceFileNavigator
                     key="device-files"
                     isAvailable={deviceFsHook.isAvailable}
@@ -335,6 +357,7 @@ export function App() {
                     onDeleteDir={handleDeleteDeviceDir}
                     onCountChildren={handleCountDeviceChildren}
                     onUpload={handleUploadToDevice}
+                    onDownloadRequest={handleDownloadFromDevice}
                     onShowMessage={handleShowDeviceMessage}
                   />,
                 ]}

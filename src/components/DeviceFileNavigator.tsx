@@ -21,7 +21,11 @@ import type {
 } from 'react';
 import type { DeviceTreeEntry, DeviceTreeNode } from '../hooks/useDeviceFs';
 import { dirname, validateName } from '../lib/devicePath';
-import { LOCAL_PATH_MIME, consumeLocalDragSource } from '../lib/localDragSource';
+import {
+  DEVICE_PATH_MIME,
+  LOCAL_PATH_MIME,
+  consumeLocalDragSource,
+} from '../lib/localDragSource';
 
 type CreateKind = 'file' | 'dir';
 
@@ -40,6 +44,7 @@ interface DeviceFileNavigatorProps {
   onDeleteDir: (path: string, recursive: boolean) => Promise<void>;
   onCountChildren: (path: string) => Promise<number>;
   onUpload: (parentPath: string, files: File[]) => Promise<void>;
+  onDownloadRequest: (path: string) => Promise<void>;
   onShowMessage: (message: string) => void;
 }
 
@@ -58,6 +63,7 @@ export function DeviceFileNavigator({
   onDeleteDir,
   onCountChildren,
   onUpload,
+  onDownloadRequest,
   onShowMessage,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
@@ -156,6 +162,15 @@ export function DeviceFileNavigator({
     e.preventDefault();
     e.nativeEvent.stopImmediatePropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
+  };
+
+  const startDownload = (path: string) => {
+    setContextMenu(null);
+    void onDownloadRequest(path).catch((err) => {
+      onShowMessage(
+        `Download failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   };
 
   const startUploadHere = (parentPath: string) => {
@@ -301,6 +316,7 @@ export function DeviceFileNavigator({
             startRename,
             startDelete,
             startUploadHere,
+            startDownload,
           )}
         />
       )}
@@ -528,6 +544,11 @@ function TreeRow({
       onDrop={(e) => onDropRow(e, effectiveTarget)}
     >
       <button
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(DEVICE_PATH_MIME, entry.path);
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
         onClick={() => onOpenFile(entry.path)}
         style={{ paddingLeft: indent + 12 }}
         className="flex items-center gap-1.5 flex-1 min-w-0 text-left pr-1 py-1 text-sm truncate"
@@ -881,6 +902,7 @@ function buildContextMenuItems(
   startRename: (path: string) => void,
   startDelete: (path: string) => void,
   startUploadHere: (parentPath: string) => void,
+  startDownload: (path: string) => void,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (entry.isDir) {
@@ -893,6 +915,8 @@ function buildContextMenuItems(
       onClick: () => startCreate(entry.path, 'dir', entry.expanded),
     });
     items.push({ label: 'Upload here', onClick: () => startUploadHere(entry.path) });
+  } else {
+    items.push({ label: 'Download', onClick: () => startDownload(entry.path) });
   }
   if (entry.path !== '/') {
     items.push({ label: 'Rename', onClick: () => startRename(entry.path) });
