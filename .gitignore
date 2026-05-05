@@ -1,2 +1,5 @@
 node_modules/
 dist/
+.vscode/
+.firebase/
+.claude/*.local.json
