@@ -14,9 +14,14 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type {
+  DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from 'react';
 import type { DeviceTreeEntry, DeviceTreeNode } from '../hooks/useDeviceFs';
-import { validateName } from '../lib/devicePath';
+import { dirname, validateName } from '../lib/devicePath';
+import { LOCAL_PATH_MIME, consumeLocalDragSource } from '../lib/localDragSource';
 
 type CreateKind = 'file' | 'dir';
 
@@ -34,6 +39,8 @@ interface DeviceFileNavigatorProps {
   onDeleteFile: (path: string) => Promise<void>;
   onDeleteDir: (path: string, recursive: boolean) => Promise<void>;
   onCountChildren: (path: string) => Promise<number>;
+  onUpload: (parentPath: string, files: File[]) => Promise<void>;
+  onShowMessage: (message: string) => void;
 }
 
 export function DeviceFileNavigator({
@@ -50,6 +57,8 @@ export function DeviceFileNavigator({
   onDeleteFile,
   onDeleteDir,
   onCountChildren,
+  onUpload,
+  onShowMessage,
 }: DeviceFileNavigatorProps) {
   const [creating, setCreating] = useState<{ path: string; kind: CreateKind } | null>(null);
   const [renaming, setRenaming] = useState<{ path: string } | null>(null);
@@ -59,6 +68,7 @@ export function DeviceFileNavigator({
     y: number;
     entry: DeviceTreeEntry;
   } | null>(null);
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -87,6 +97,7 @@ export function DeviceFileNavigator({
       if (creating !== null) setCreating(null);
       if (renaming !== null) setRenaming(null);
       if (deleting !== null) setDeleting(null);
+      if (dragOverPath !== null) setDragOverPath(null);
     }
   }
 
@@ -147,6 +158,83 @@ export function DeviceFileNavigator({
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
+  const startUploadHere = (parentPath: string) => {
+    setContextMenu(null);
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.onchange = () => {
+      const files = input.files ? Array.from(input.files) : [];
+      if (files.length > 0) {
+        void onUpload(parentPath, files).catch((err) => {
+          onShowMessage(
+            `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
+    };
+    input.click();
+  };
+
+  const handleDragOverRow = (e: ReactDragEvent<HTMLElement>, effectiveTarget: string) => {
+    if (!isAcceptableDrop(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (dragOverPath !== effectiveTarget) setDragOverPath(effectiveTarget);
+  };
+
+  const handleDropRow = async (
+    e: ReactDragEvent<HTMLElement>,
+    effectiveTarget: string,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverPath(null);
+    const dt = e.dataTransfer;
+
+    if (hasFolderItem(dt)) {
+      onShowMessage(
+        'Folder upload/download is not supported yet — drag individual files for now.',
+      );
+      return;
+    }
+
+    const localId = dt.getData(LOCAL_PATH_MIME);
+    if (localId) {
+      const source = consumeLocalDragSource(localId);
+      if (source) {
+        try {
+          const file = await source.handle.getFile();
+          await onUpload(effectiveTarget, [file]);
+        } catch (err) {
+          onShowMessage(
+            `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        return;
+      }
+    }
+
+    if (dt.files.length > 0) {
+      try {
+        await onUpload(effectiveTarget, Array.from(dt.files));
+      } catch (err) {
+        onShowMessage(
+          `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  };
+
+  const handleContainerDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    // dragleave fires when transitioning between children too. Only clear
+    // when the pointer truly leaves the container.
+    const next = e.relatedTarget;
+    if (next instanceof Node && e.currentTarget.contains(next)) return;
+    setDragOverPath(null);
+  };
+
   return (
     <div className="flex flex-col h-full bg-muted/30">
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border">
@@ -168,7 +256,10 @@ export function DeviceFileNavigator({
           <RefreshCw size={14} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        onDragLeave={handleContainerDragLeave}
+      >
         {!isAvailable || !tree ? (
           <div className="px-3 py-2 text-sm text-muted-foreground">
             Connect a device to browse its files.
@@ -194,6 +285,9 @@ export function DeviceFileNavigator({
             onSubmitDelete={submitDelete}
             onCountChildren={onCountChildren}
             onContextMenu={openContextMenu}
+            dragOverPath={dragOverPath}
+            onDragOverRow={handleDragOverRow}
+            onDropRow={handleDropRow}
           />
         )}
       </div>
@@ -201,7 +295,13 @@ export function DeviceFileNavigator({
         <ContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          items={buildContextMenuItems(contextMenu.entry, startCreate, startRename, startDelete)}
+          items={buildContextMenuItems(
+            contextMenu.entry,
+            startCreate,
+            startRename,
+            startDelete,
+            startUploadHere,
+          )}
         />
       )}
     </div>
@@ -228,6 +328,9 @@ interface TreeRowProps {
   onSubmitDelete: (entry: DeviceTreeEntry, recursive: boolean) => Promise<void>;
   onCountChildren: (path: string) => Promise<number>;
   onContextMenu: (e: ReactMouseEvent, entry: DeviceTreeEntry) => void;
+  dragOverPath: string | null;
+  onDragOverRow: (e: ReactDragEvent<HTMLElement>, effectiveTarget: string) => void;
+  onDropRow: (e: ReactDragEvent<HTMLElement>, effectiveTarget: string) => void;
 }
 
 function TreeRow({
@@ -250,11 +353,16 @@ function TreeRow({
   onSubmitDelete,
   onCountChildren,
   onContextMenu,
+  dragOverPath,
+  onDragOverRow,
+  onDropRow,
 }: TreeRowProps) {
   const indent = 8 + depth * 12;
   const isRenaming = renaming?.path === entry.path;
   const isDeleting = deleting?.path === entry.path;
   const isRoot = entry.path === '/';
+  const effectiveTarget = entry.isDir ? entry.path : dirname(entry.path);
+  const isDropHighlighted = entry.isDir && dragOverPath === entry.path;
   if (entry.isDir) {
     const toggle = () => (entry.expanded ? onCollapse(entry.path) : onExpand(entry.path));
     return (
@@ -276,8 +384,14 @@ function TreeRow({
           />
         ) : (
           <div
-            className="group flex items-center hover:bg-accent transition-colors"
+            className={`group flex items-center transition-colors ${
+              isDropHighlighted
+                ? 'bg-primary/15 outline outline-1 outline-primary/40'
+                : 'hover:bg-accent'
+            }`}
             onContextMenu={(e) => onContextMenu(e, entry)}
+            onDragOver={(e) => onDragOverRow(e, effectiveTarget)}
+            onDrop={(e) => onDropRow(e, effectiveTarget)}
           >
             <button
               onClick={toggle}
@@ -375,6 +489,9 @@ function TreeRow({
                 onSubmitDelete={onSubmitDelete}
                 onCountChildren={onCountChildren}
                 onContextMenu={onContextMenu}
+                dragOverPath={dragOverPath}
+                onDragOverRow={onDragOverRow}
+                onDropRow={onDropRow}
               />
             ))}
           </>
@@ -407,6 +524,8 @@ function TreeRow({
     <div
       className="group flex items-center hover:bg-accent transition-colors"
       onContextMenu={(e) => onContextMenu(e, entry)}
+      onDragOver={(e) => onDragOverRow(e, effectiveTarget)}
+      onDrop={(e) => onDropRow(e, effectiveTarget)}
     >
       <button
         onClick={() => onOpenFile(entry.path)}
@@ -761,6 +880,7 @@ function buildContextMenuItems(
   startCreate: (parentPath: string, kind: CreateKind, expanded: boolean) => void,
   startRename: (path: string) => void,
   startDelete: (path: string) => void,
+  startUploadHere: (parentPath: string) => void,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   if (entry.isDir) {
@@ -772,12 +892,26 @@ function buildContextMenuItems(
       label: 'New folder',
       onClick: () => startCreate(entry.path, 'dir', entry.expanded),
     });
+    items.push({ label: 'Upload here', onClick: () => startUploadHere(entry.path) });
   }
   if (entry.path !== '/') {
     items.push({ label: 'Rename', onClick: () => startRename(entry.path) });
     items.push({ label: 'Delete', onClick: () => startDelete(entry.path) });
   }
   return items;
+}
+
+function isAcceptableDrop(dt: DataTransfer): boolean {
+  return dt.types.includes(LOCAL_PATH_MIME) || dt.types.includes('Files');
+}
+
+function hasFolderItem(dt: DataTransfer): boolean {
+  for (let i = 0; i < dt.items.length; i++) {
+    const item = dt.items[i];
+    const entry = item.webkitGetAsEntry?.();
+    if (entry?.isDirectory) return true;
+  }
+  return false;
 }
 
 function ContextMenu({ x, y, items }: { x: number; y: number; items: ContextMenuItem[] }) {
