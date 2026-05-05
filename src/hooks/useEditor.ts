@@ -32,12 +32,18 @@ export function useEditor(theme: 'light' | 'dark') {
       setIsModified(current !== snapshotRef.current);
     });
 
+    const fillHeight = EditorView.theme({
+      '&': { height: '100%' },
+      '.cm-scroller': { overflow: 'auto' },
+    });
+
     const view = new EditorView({
       state: EditorState.create({
         extensions: [
           basicSetup,
           python(),
           themeCompartment.current.of(themeExtension(theme)),
+          fillHeight,
           modifiedListener,
         ],
       }),

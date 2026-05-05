@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe('saveEditor', () => {
   describe('origin: device', () => {
-    it('is a no-op', async () => {
+    it('is a no-op when no writeDevice is provided', async () => {
       const setOriginAndContent = vi.fn();
       const result = await saveEditor(
         { kind: 'device', path: '/main.py' },
@@ -43,6 +43,34 @@ describe('saveEditor', () => {
         setOriginAndContent
       );
       expect(result).toBe('noop');
+      expect(setOriginAndContent).not.toHaveBeenCalled();
+    });
+
+    it('writes through writeDevice and re-snapshots', async () => {
+      const setOriginAndContent = vi.fn();
+      const writeDevice = vi.fn().mockResolvedValue(undefined);
+      const origin: EditorOrigin = { kind: 'device', path: '/main.py' };
+
+      const result = await saveEditor(origin, 'print("hi")', setOriginAndContent, writeDevice);
+
+      expect(result).toBe('saved');
+      expect(writeDevice).toHaveBeenCalledWith('/main.py', 'print("hi")');
+      expect(setOriginAndContent).toHaveBeenCalledWith(origin, 'print("hi")');
+    });
+
+    it('does not re-snapshot when writeDevice rejects', async () => {
+      const setOriginAndContent = vi.fn();
+      const writeDevice = vi.fn().mockRejectedValue(new Error('device offline'));
+
+      await expect(
+        saveEditor(
+          { kind: 'device', path: '/main.py' },
+          'print("hi")',
+          setOriginAndContent,
+          writeDevice
+        )
+      ).rejects.toThrow('device offline');
+
       expect(setOriginAndContent).not.toHaveBeenCalled();
     });
   });

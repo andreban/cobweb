@@ -11,10 +11,11 @@ import { ReplShell } from './components/ReplShell';
 import { CodeEditor } from './components/CodeEditor';
 import { FileNavigator } from './components/FileNavigator';
 import { DeviceFileNavigator } from './components/DeviceFileNavigator';
+import { EditorBanner } from './components/EditorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AgentPanel } from './components/AgentPanel';
 import { useReplConnection } from './hooks/useReplConnection';
-import { useEditor } from './hooks/useEditor';
+import { useEditor, type EditorOrigin } from './hooks/useEditor';
 import { useDeviceFs } from './hooks/useDeviceFs';
 import { useProviderConfig } from './hooks/useProviderConfig';
 import { useTheme } from './hooks/useTheme';
@@ -32,31 +33,104 @@ export function App() {
     useReplConnection();
   const { config, save: saveConfig, clear: clearConfig } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
-  const { editorRef, getContent, setContent, origin, setOriginAndContent } = useEditor(theme);
+  const { editorRef, getContent, setContent, origin, setOriginAndContent, isModified } =
+    useEditor(theme);
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
+  const { readBytes: deviceReadBytes, writeText: deviceWriteText } = deviceFsHook;
 
   const deviceFs = useMemo(
     () => (connectionState === 'connected' ? new DeviceFs(runCode) : null),
     [connectionState, runCode],
   );
 
-  const handleSave = useCallback(() => {
-    saveEditor(origin, getContent(), setOriginAndContent).catch((err) => {
-      console.error('Save failed:', err);
-    });
-  }, [origin, getContent, setOriginAndContent]);
+  type BannerState =
+    | { kind: 'pending-switch'; origin: EditorOrigin; content: string }
+    | { kind: 'message'; message: string };
+  const [banner, setBanner] = useState<BannerState | null>(null);
+
+  const handleSave = useCallback(async (): Promise<'saved' | 'cancelled' | 'noop'> => {
+    return saveEditor(origin, getContent(), setOriginAndContent, deviceWriteText);
+  }, [origin, getContent, setOriginAndContent, deviceWriteText]);
+
+  const handleSaveClick = useCallback(() => {
+    handleSave().catch((err) => console.error('Save failed:', err));
+  }, [handleSave]);
+
+  const handleOpenDeviceFile = useCallback(
+    async (path: string) => {
+      // Drop any stale banner from a previous open attempt; later branches
+      // raise a new banner when needed (binary file, error, pending switch).
+      setBanner(null);
+      try {
+        const bytes = await deviceReadBytes(path);
+        let text: string;
+        try {
+          text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch (err) {
+          if (err instanceof TypeError) {
+            setBanner({ kind: 'message', message: 'Binary file — cannot open in editor.' });
+            return;
+          }
+          throw err;
+        }
+        const newOrigin: EditorOrigin = { kind: 'device', path };
+        if (isModified) {
+          setBanner({ kind: 'pending-switch', origin: newOrigin, content: text });
+          return;
+        }
+        setOriginAndContent(newOrigin, text);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setBanner({ kind: 'message', message: `Failed to open: ${message}` });
+      }
+    },
+    [deviceReadBytes, isModified, setOriginAndContent],
+  );
+
+  const dismissBanner = useCallback(() => setBanner(null), []);
+
+  const acceptPendingSwitch = useCallback(() => {
+    if (banner?.kind !== 'pending-switch') return;
+    setOriginAndContent(banner.origin, banner.content);
+    setBanner(null);
+  }, [banner, setOriginAndContent]);
+
+  const saveAndAcceptPendingSwitch = useCallback(() => {
+    if (banner?.kind !== 'pending-switch') return;
+    const target = banner;
+    handleSave()
+      .then((result) => {
+        if (result === 'cancelled') return;
+        setOriginAndContent(target.origin, target.content);
+        setBanner(null);
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setBanner({ kind: 'message', message: `Save failed: ${message}` });
+      });
+  }, [banner, handleSave, setOriginAndContent]);
+
+  // Banners reflect in-flight device-fs interactions (pending switch to a
+  // device file, binary-file warning, open errors). On disconnect those
+  // become stale — the target path is unreachable — so dismiss using the
+  // documented "adjust state during render" pattern.
+  const [prevIsAvailable, setPrevIsAvailable] = useState(deviceFsHook.isAvailable);
+  if (prevIsAvailable !== deviceFsHook.isAvailable) {
+    setPrevIsAvailable(deviceFsHook.isAvailable);
+    if (!deviceFsHook.isAvailable && banner !== null) setBanner(null);
+  }
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSave();
+        handleSaveClick();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSave]);
+  }, [handleSaveClick]);
 
   useEffect(() => {
     wireTools(models.tools, {
@@ -118,8 +192,8 @@ export function App() {
             // promise rejection.
             runCode(getContent()).catch((err) => console.error('Run failed:', err));
           }}
-          onSave={handleSave}
-          saveEnabled={origin.kind !== 'device'}
+          onSave={handleSaveClick}
+          saveEnabled={origin.kind !== 'device' || deviceFsHook.isAvailable}
           onOpenSettings={() => setIsSettingsOpen(true)}
           isAgentConfigured={config !== null}
           themePreference={themePreference}
@@ -157,6 +231,11 @@ export function App() {
                         console.error('Refresh failed:', err),
                       );
                     }}
+                    onOpenFile={(p) => {
+                      handleOpenDeviceFile(p).catch((err) =>
+                        console.error('Open device file failed:', err),
+                      );
+                    }}
                   />,
                 ]}
               </SplitPane>,
@@ -178,7 +257,34 @@ export function App() {
                     collapsed={!replOpen}
                   >
                     {[
-                      <CodeEditor key="editor" editorRef={editorRef} />,
+                      <div
+                        key="editor"
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          width: '100%',
+                          height: '100%',
+                        }}
+                      >
+                        {banner?.kind === 'pending-switch' && (
+                          <EditorBanner
+                            kind="pending-switch"
+                            onSave={saveAndAcceptPendingSwitch}
+                            onDiscard={acceptPendingSwitch}
+                            onCancel={dismissBanner}
+                          />
+                        )}
+                        {banner?.kind === 'message' && (
+                          <EditorBanner
+                            kind="message"
+                            message={banner.message}
+                            onDismiss={dismissBanner}
+                          />
+                        )}
+                        <div style={{ flex: 1, minHeight: 0 }}>
+                          <CodeEditor editorRef={editorRef} />
+                        </div>
+                      </div>,
                       <ReplShell key="repl" onData={onData} onInput={send} theme={theme} />,
                     ]}
                   </SplitPane>,

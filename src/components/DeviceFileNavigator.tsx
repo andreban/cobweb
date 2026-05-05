@@ -11,6 +11,7 @@ interface DeviceFileNavigatorProps {
   onExpand: (path: string) => void;
   onCollapse: (path: string) => void;
   onRefreshAll: () => void;
+  onOpenFile: (path: string) => void;
 }
 
 export function DeviceFileNavigator({
@@ -20,6 +21,7 @@ export function DeviceFileNavigator({
   onExpand,
   onCollapse,
   onRefreshAll,
+  onOpenFile,
 }: DeviceFileNavigatorProps) {
   return (
     <div className="flex flex-col h-full bg-muted/30">
@@ -48,7 +50,13 @@ export function DeviceFileNavigator({
             Connect a device to browse its files.
           </div>
         ) : (
-          <TreeRow entry={tree} depth={0} onExpand={onExpand} onCollapse={onCollapse} />
+          <TreeRow
+            entry={tree}
+            depth={0}
+            onExpand={onExpand}
+            onCollapse={onCollapse}
+            onOpenFile={onOpenFile}
+          />
         )}
       </div>
     </div>
@@ -60,9 +68,10 @@ interface TreeRowProps {
   depth: number;
   onExpand: (path: string) => void;
   onCollapse: (path: string) => void;
+  onOpenFile: (path: string) => void;
 }
 
-function TreeRow({ entry, depth, onExpand, onCollapse }: TreeRowProps) {
+function TreeRow({ entry, depth, onExpand, onCollapse, onOpenFile }: TreeRowProps) {
   const indent = 8 + depth * 12;
   if (entry.isDir) {
     const toggle = () => (entry.expanded ? onCollapse(entry.path) : onExpand(entry.path));
@@ -89,18 +98,20 @@ function TreeRow({ entry, depth, onExpand, onCollapse }: TreeRowProps) {
               depth={depth + 1}
               onExpand={onExpand}
               onCollapse={onCollapse}
+              onOpenFile={onOpenFile}
             />
           ))}
       </>
     );
   }
   return (
-    <div
+    <button
+      onClick={() => onOpenFile(entry.path)}
       style={{ paddingLeft: indent + 12 }}
-      className="flex items-center gap-1.5 w-full pr-2 py-1 text-sm text-muted-foreground truncate cursor-default"
+      className="flex items-center gap-1.5 w-full text-left pr-2 py-1 text-sm hover:bg-accent transition-colors truncate"
     >
       <File size={14} className="shrink-0" />
       <span className="truncate">{entry.name}</span>
-    </div>
+    </button>
   );
 }
