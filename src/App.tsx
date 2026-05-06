@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AgentProvider, INLINE_APPROVAL } from '@mast-ai/react-ui';
+import { AgentProvider } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
@@ -295,8 +295,6 @@ export function App() {
     <AgentProvider
       runner={runner}
       agent={CODING_AGENT}
-      disableRoot={true}
-      onApprovalRequired={async () => INLINE_APPROVAL}
       onConversationChange={(history, entries) => {
         localStorage.setItem('cobweb:conversation', JSON.stringify({ history, entries }));
       }}
