@@ -6,10 +6,11 @@
 
 What we are responsible for in this feature:
 
-1. Introducing two new partial-edit tools (`edit_editor`, `edit_device_file`) that take `old_string` / `new_string` and apply uniqueness-based find/replace, mirroring Claude Code's Edit tool.
-2. Flipping the existing `write_editor`'s `requiresApproval` to `true` so it joins the four already-flagged write tools (`write_device_file`, `delete_device_file`, `make_device_dir`).
-3. Plugging a custom `renderApproval` slot into `<ConversationPanel>` that dispatches on tool name — diff card for the two `edit_*` tools, content-preview card for `write_*` tools, confirm card for `delete_device_file` / `make_device_dir`.
-4. Updating the agent instructions in `CODING_AGENT` so the model knows when to reach for `edit_editor` (partial change to existing code) vs. `write_editor` (new program / full rewrite).
+1. Introducing two new single-edit tools (`edit_editor`, `edit_device_file`) that take `old_string` / `new_string` and apply uniqueness-based find/replace, mirroring Claude Code's Edit tool.
+2. Introducing two batched-edit tools (`multi_edit_editor`, `multi_edit_device_file`) that take an array of `{ old_string, new_string }` edits and apply them sequentially and atomically (all-or-nothing), mirroring Claude Code's MultiEdit.
+3. Flipping the existing `write_editor`'s `requiresApproval` to `true` so it joins the already-flagged write tools (`write_device_file`, `delete_device_file`, `make_device_dir`).
+4. Plugging a custom `renderApproval` slot into `<ConversationPanel>` that dispatches on tool name — multi-hunk diff card for the four `*edit*_*` tools, content-preview card for `write_*` tools, confirm card for `delete_device_file` / `make_device_dir`.
+5. Updating the agent instructions in `CODING_AGENT` so the model knows when to reach for `edit_editor` (one partial change), `multi_edit_editor` (several related changes in one call), `write_editor` (new program / full rewrite), and the device-file analogues.
 
 Everything else — queueing pending approvals, injecting "user cancelled" results into the runner, cancelling on `useAgent().cancel()` / `reset()` — is handled by the framework.
 
@@ -94,6 +95,68 @@ interface EditDeviceFileArgs {
 
 The host-side read–modify–write between approval and apply mirrors `WriteDeviceFileTool`'s existing model (no atomicity beyond what `DeviceFs.writeText` already provides).
 
+### `MultiEditEditorTool` (`multi_edit_editor`)
+
+Batched partial edits over the editor buffer. Each edit is the same shape as `edit_editor`'s args; the array is applied sequentially against the running buffer. All-or-nothing: if any edit's `old_string` is missing or non-unique against the buffer state at its turn, *no* edits apply and the model gets a structured error.
+
+**Args:**
+
+```ts
+interface MultiEditEditorArgs {
+  edits: Array<{
+    old_string: string;
+    new_string: string;
+  }>;
+}
+```
+
+**`ToolDefinition`:**
+
+- `name: 'multi_edit_editor'`
+- `scope: 'write'`
+- `requiresApproval: true`
+- Description (final wording in implementation):
+  > "Applies a sequence of `{ old_string, new_string }` edits to the editor in order. Each `old_string` must appear exactly once *at its turn* (i.e. after all earlier edits in the array have been applied). All edits succeed or none do. Use this when the agent needs to make several related changes — renaming a symbol everywhere, refactoring a small set of related lines, etc. — in one approval. For a single change, use `edit_editor`."
+
+**`call(args)` body:**
+
+Implemented in two stages so the simulation logic is shared with the renderer:
+
+1. `simulateMultiEdit(source, edits)` (in `src/lib/editApproval.ts`) walks the edits array, applying each successful step to a running string. It returns either:
+   - `{ ok: true; final: string; hunks: ChangedRegion[] }` — all edits validated and applied; `hunks` are the merged contiguous changed regions between `source` and `final`, each with `firstLine`, `before` lines, `after` lines, and `contextBefore` / `contextAfter` lines.
+   - `{ ok: false; index: number; reason: 'missing' | 'ambiguous'; count?: number }` — edit `index` failed; nothing was applied.
+2. `call()` reads the current editor content, calls `simulateMultiEdit`, and either:
+   - On `ok: true` → `setEditorContent(result.final)` and return `'Editor updated. N edit(s) applied.'`.
+   - On `ok: false; reason: 'missing'` → return `Edit #${index + 1}: old_string not found.`.
+   - On `ok: false; reason: 'ambiguous'` → return `Edit #${index + 1}: old_string is ambiguous — appears ${count} times.`.
+
+The same error strings are surfaced in the approval card (see "MultiEdit branch" below) so the user can choose Reject or `respondWith` the matching message.
+
+### `MultiEditDeviceFileTool` (`multi_edit_device_file`)
+
+Same shape as `multi_edit_editor`, scoped to a file on the device.
+
+**Args:**
+
+```ts
+interface MultiEditDeviceFileArgs {
+  path: string;
+  edits: Array<{
+    old_string: string;
+    new_string: string;
+  }>;
+}
+```
+
+**`ToolDefinition`:** as `multi_edit_editor`, with `path` documented in the description.
+
+**`call(args)` body:**
+
+1. If `bindings.deviceFs === null` → return `'Device is not connected.'`.
+2. Read + decode UTF-8 (fatal). On `TypeError` → return `'Cannot edit binary file.'`.
+3. Run `simulateMultiEdit`. On failure return the same `Edit #N: ...` strings as `multi_edit_editor`.
+4. On success → `deviceFs.writeText(path, result.final)` and return `'File updated. N edit(s) applied.'`.
+
 ---
 
 ## Modified tools
@@ -120,6 +183,8 @@ A single component, `<CobwebApproval>`, lives at `src/components/CobwebApproval.
 switch (entry.name) {
   case 'edit_editor':
   case 'edit_device_file':
+  case 'multi_edit_editor':
+  case 'multi_edit_device_file':
     return <EditApprovalCard entry={entry} approval={approval} ... />;
   case 'write_editor':
   case 'write_device_file':
@@ -138,19 +203,26 @@ The `default` branch falls back to the bundled `<InlineApproval>` so any future 
 
 Props (in addition to `entry` + `approval`): a way to read the source content for diffing.
 
-- For `edit_editor`: receives `getEditorContent: () => string`.
-- For `edit_device_file`: receives `readDeviceFile: (path: string) => Promise<string | null>` (returns `null` on binary or read error).
+- For `edit_editor` / `multi_edit_editor`: receives `getEditorContent: () => string`.
+- For `edit_device_file` / `multi_edit_device_file`: receives `readDeviceFile: (path: string) => Promise<string | null>` (returns `null` on binary or read error).
 
 Render flow:
 
-1. Parse `entry.args` into `{ old_string, new_string, path? }`.
+1. Parse `entry.args`. For `edit_*` tools, normalise to `{ edits: [{ old_string, new_string }], path? }`. For `multi_edit_*` tools, take `args.edits` (and `args.path` for device).
 2. Read source content. For the editor, synchronous. For device files, kick off the async read in `useEffect` and show a "loading…" placeholder until it resolves.
-3. Locate `old_string` in source. Three states:
-   - **Not found.** Show "Edit no longer applies — `old_string` is not in the buffer." Approve button disabled. Reject button enabled, plus a "Tell the agent" button that calls `approval.respondWith('old_string not found in editor.')` (same message the tool body would have produced).
-   - **Multiple matches.** Show "Edit is ambiguous — `old_string` appears N times." Same disabled-Approve / Reject / respondWith treatment.
-   - **Unique match.** Render the diff (below). Approve + Reject both enabled.
-4. **Diff rendering.** Expand the unique match to the boundary lines that contain it. Capture two lines of unchanged context above and two below (clipped at file start/end). Within the changed region, run `diffWords` from the `diff` package and render with red strikethrough on removed segments and green background on added segments. A small line-number gutter on the left starts at `firstContextLineNumber` and increments per rendered line, reflecting the source's line numbers (not 1-based-from-card).
-5. **Header line.** "Edit *editor*" or "Edit *`/path/to/file.py`*" depending on tool. The path comes from `args.path` for device edits.
+3. Run `simulateMultiEdit(source, edits)` from `src/lib/editApproval.ts`. Two outcomes:
+   - **Failure.** The card shows "Edit #N: old_string not found." or "Edit #N: old_string is ambiguous — appears M times.", referencing the failing edit's index (1-based for display). Approve is disabled. Reject is enabled. A secondary "Tell the agent" button calls `approval.respondWith(...)` with the exact same string the tool body would have produced (so the model gets a uniform error whether the user clicked Reject or the tool ran post-approval).
+   - **Success.** Render the cumulative diff as one or more hunks (below). Approve + Reject both enabled.
+4. **Multi-hunk diff rendering.** `simulateMultiEdit` returns merged contiguous changed regions between `source` and `final`. Two regions whose context windows overlap are merged into one hunk so the user does not see overlapping context. Each hunk renders:
+   - A small `@@ Lines X–Y @@` header with the source's line numbers.
+   - Two lines of unchanged context above and below, clipped at file start/end.
+   - The changed region itself, with `diffWords` from the `diff` package run on the contiguous (`before`, `after`) line block — red strikethrough on removed segments, green background on added segments.
+   - A line-number gutter on the left, reflecting the source's line numbers (not 1-based-from-card).
+5. **Header line.** Dispatches by tool kind:
+   - `edit_editor` → "Edit *editor*"
+   - `multi_edit_editor` → "Edit *editor* — N change(s)"
+   - `edit_device_file` → "Edit *`<path>`*"
+   - `multi_edit_device_file` → "Edit *`<path>`* — N change(s)"
 6. **Buttons.** Approve / Reject. Approve calls `approval.approve()`. Reject calls `approval.reject()`.
 
 ### `WriteApprovalCard`
@@ -201,24 +273,26 @@ const renderApproval: RenderApproval = (entry, approval) => (
 
 ### `wireTools.ts`
 
-Register two new tools alongside the others:
+Register the four new tools alongside the others:
 
 ```ts
 tools.register(new EditEditorTool(get));
 tools.register(new EditDeviceFileTool(get));
+tools.register(new MultiEditEditorTool(get));
+tools.register(new MultiEditDeviceFileTool(get));
 ```
 
 ### `CODING_AGENT.tools` (in `src/agent/config.ts`)
 
-Add `'edit_editor'` and `'edit_device_file'` to the `tools` list.
+Add `'edit_editor'`, `'edit_device_file'`, `'multi_edit_editor'`, and `'multi_edit_device_file'` to the `tools` list.
 
 ### `CODING_AGENT.instructions`
 
-Add a paragraph that steers the model toward `edit_*` for partial changes and away from `write_*` for them. Sketch:
+Steer the model toward the right edit tool. Sketch:
 
-> "For partial changes to existing code, prefer `edit_editor` (or `edit_device_file` for a file on the device) — they take an `old_string` / `new_string` and require uniqueness, and the user reviews a focused diff. Use `write_editor` only when creating a new program from scratch or replacing the whole buffer; use `write_device_file` only for new files or full rewrites. Both `edit_*` and `write_*` tools require user approval before they apply."
+> "For a single partial change to existing code, prefer `edit_editor` (or `edit_device_file` for a file on the device) — they take `old_string` / `new_string` and require uniqueness; the user reviews a focused diff. For several related changes in one go, use `multi_edit_editor` (or `multi_edit_device_file`) with an array of edits applied atomically — the user reviews all the diffs together and approves once. Use `write_editor` only when creating a new program from scratch or replacing the whole buffer; use `write_device_file` only for new files or full rewrites. Every editing tool requires user approval before it applies."
 
-The existing description of `write_editor` ("When asked to write code, use write_editor then offer to run it.") is rewritten so the default partial-edit path is `edit_editor`.
+The existing description of `write_editor` ("When asked to write code, use write_editor then offer to run it.") is rewritten so the default partial-edit path is `edit_editor` / `multi_edit_editor`.
 
 ### `<AgentProvider>`
 
@@ -234,9 +308,12 @@ No new props needed. The default `onApprovalRequired` is already "INLINE_APPROVA
 - `src/agent/tools/EditEditorTool.test.ts`
 - `src/agent/tools/EditDeviceFileTool.ts`
 - `src/agent/tools/EditDeviceFileTool.test.ts`
-- `src/components/CobwebApproval.tsx` (dispatcher + the three card components)
-- `src/components/CobwebApproval.test.tsx` *(see Testing — the three card components are pure functions of `entry` + bindings; component-level rendering tests are skipped per project convention, but the dispatch logic and "edit no longer applies" branches are covered by extracting a pure helper to `src/lib/editApproval.ts` with its own `.test.ts`.)*
-- `src/lib/editApproval.ts` — pure helpers: `findUniqueOccurrence(source, target): { kind: 'unique'; index: number } | { kind: 'missing' } | { kind: 'ambiguous'; count: number }`, `expandToContextLines(source, matchIndex, matchLength, contextLines): { before: string[]; old: string[]; new: string[] (computed by caller); after: string[]; firstLineNumber: number }`.
+- `src/agent/tools/MultiEditEditorTool.ts`
+- `src/agent/tools/MultiEditEditorTool.test.ts`
+- `src/agent/tools/MultiEditDeviceFileTool.ts`
+- `src/agent/tools/MultiEditDeviceFileTool.test.ts`
+- `src/components/CobwebApproval.tsx` (dispatcher + card components)
+- `src/lib/editApproval.ts` — pure helpers: `findUniqueOccurrence(source, target): { kind: 'unique'; index: number } | { kind: 'missing' } | { kind: 'ambiguous'; count: number }`, `simulateMultiEdit(source, edits): { ok: true; final: string; hunks: ChangedRegion[] } | { ok: false; index: number; reason: 'missing' | 'ambiguous'; count?: number }`, `mergeOverlappingHunks(hunks, contextLines): ChangedRegion[]`.
 - `src/lib/editApproval.test.ts`
 
 **Modify:**
@@ -261,9 +338,21 @@ No new props needed. The default `onApprovalRequired` is already "INLINE_APPROVA
 
 Per project convention, UI components are not unit-tested. The pure logic is — that is where bugs hide:
 
-- `src/lib/editApproval.test.ts` — `findUniqueOccurrence`: empty target, single match at start / middle / end, zero matches, two matches, overlapping matches (e.g. `target = 'aa'`, `source = 'aaaa'` → counted by non-overlapping replace semantics, matching `String.prototype.replace`'s behaviour). `expandToContextLines`: match at file start (no `before` lines), match at file end, match spanning the whole file, multi-line matches (the entire matched region is shown line-aligned).
+- `src/lib/editApproval.test.ts`:
+  - `findUniqueOccurrence`: empty target, single match at start / middle / end, zero matches, two matches, overlapping matches (e.g. `target = 'aa'`, `source = 'aaaa'` → counted by non-overlapping replace semantics, matching `String.prototype.replace`'s behaviour). Multi-line matches are exercised by `simulateMultiEdit`.
+  - `simulateMultiEdit`:
+    - Empty `edits` array → `ok: true`, `hunks: []`, `final === source`.
+    - Single edit, success — equivalent to single-edit-tool behaviour.
+    - Two non-adjacent edits → two hunks.
+    - Two edits whose context windows overlap (e.g. lines 5 and 7 with 2 lines context) → merged into one hunk.
+    - Edit #2's `old_string` references content produced by edit #1 → succeeds (running buffer; not original).
+    - Edit #2's `old_string` is missing in the original *but* present after edit #1 → succeeds.
+    - Edit #1 ambiguous → `ok: false; index: 0; reason: 'ambiguous'; count: N`.
+    - Edit #2 missing in the running buffer → `ok: false; index: 1; reason: 'missing'`. Verify the running buffer was *not* committed (caller sees the original).
 - `src/agent/tools/EditEditorTool.test.ts` — mock bindings; verify `not found`, `ambiguous`, `unique` paths return the expected strings and call `setEditorContent` only on the unique path.
 - `src/agent/tools/EditDeviceFileTool.test.ts` — mock `DeviceFs`; verify `'Device is not connected.'`, binary-file rejection, the three find-replace branches, and the success path calls `writeText` with the replaced content.
+- `src/agent/tools/MultiEditEditorTool.test.ts` — mock bindings; verify (a) the success path applies all edits and calls `setEditorContent` exactly once with the final string, (b) failures at edit index 0 and index 1 return the expected `Edit #N: ...` strings and do *not* call `setEditorContent`.
+- `src/agent/tools/MultiEditDeviceFileTool.test.ts` — mock `DeviceFs`; verify the disconnect / binary / failure paths do not call `writeText`, and the success path calls `writeText` exactly once with the final string.
 
 The renderer dispatch and "edit no longer applies" handling are validated end-to-end via manual browser testing against the success criteria in the PRD.
 
@@ -273,11 +362,13 @@ The renderer dispatch and "edit no longer applies" handling are validated end-to
 
 This feature ships behind the GitHub label `tool-approval`. Each item below becomes its own issue / PR.
 
-1. **Docs.** PRD + SPEC + GitHub label + epic issue. (This issue / PR; not a code change.)
-2. **`edit_editor` + diff approval renderer.** Adds `EditEditorTool`, `editApproval` helpers + tests, `CobwebApproval` dispatcher, `EditApprovalCard`. Flips `WriteEditorTool.requiresApproval` to `true` and adds a placeholder `WriteApprovalCard` that just shows "Replace editor with new content" + Approve/Reject (no preview yet — kept minimal so this PR is single-purpose). Wires `renderApproval` into `<AgentPanel>` and `<ConversationPanel>`. Updates `CODING_AGENT.instructions` for `edit_editor` only.
+1. **Docs.** PRD + SPEC + GitHub label + epic issue. (Initial docs PR plus a follow-up PR that folds MultiEdit in.)
+2. **`edit_editor` + diff approval renderer.** Adds `EditEditorTool`, `editApproval` helpers + tests (`findUniqueOccurrence`, `simulateMultiEdit` — implemented now, used here for the single-edit case and reused by phases 6–7), `CobwebApproval` dispatcher, `EditApprovalCard` with single-hunk rendering. Flips `WriteEditorTool.requiresApproval` to `true` and adds a placeholder `WriteApprovalCard` that just shows "Replace editor with new content" + Approve/Reject (no preview yet — kept minimal so this PR is single-purpose). Wires `renderApproval` into `<AgentPanel>` and `<ConversationPanel>`. Updates `CODING_AGENT.instructions` for `edit_editor` only.
 3. **`edit_device_file` + diff approval for it.** Adds `EditDeviceFileTool` + tests; extends the dispatcher to render `EditApprovalCard` for it (async source read). Updates instructions.
 4. **Confirmation cards.** Replaces the placeholder `WriteApprovalCard` with the scrollable preview; adds `ConfirmApprovalCard` for `delete_device_file` and `make_device_dir`. (Depends on #2.)
-5. **Polish + verification.** Manual cancel/reset testing during a pending approval; verify no orphaned promises survive; tighten copy on cards based on the live UX. (Depends on #2-4.)
+5. **Multi-hunk renderer + `multi_edit_editor`.** Extends `EditApprovalCard` to render multiple hunks via `simulateMultiEdit`'s output, including the `Edit #N: ...` failure branch. Adds `MultiEditEditorTool` + tests. Updates `CODING_AGENT.instructions` to mention `multi_edit_editor`. (Depends on #2.)
+6. **`multi_edit_device_file`.** Adds `MultiEditDeviceFileTool` + tests; routes it through the multi-hunk renderer. Updates instructions. (Depends on #3 and #5.)
+7. **Polish + verification.** Manual cancel/reset testing during a pending approval; verify no orphaned promises survive; tighten copy on cards (single-hunk, multi-hunk, failure-state, write-preview, confirm) based on the live UX. (Depends on #2-6.)
 
 Each issue body should reference this SPEC by section and state `Depends on #N` for explicit dependencies.
 
@@ -286,5 +377,6 @@ Each issue body should reference this SPEC by section and state `Depends on #N` 
 ## Open Questions
 
 - **Approve-all toggle.** PRD calls it out of scope. If users ask, the cleanest extension point is `<AgentProvider approvalOverride={['!edit_editor']}>` (suppress approval for one tool at runtime). We do not need a custom `onApprovalRequired` for this.
-- **Multi-edit tool.** Claude Code has a `MultiEdit` that batches several `old_string` / `new_string` pairs against the same buffer. Out of scope for v1; if it appears, it gets its own diff renderer that stacks per-pair diffs in one card.
-- **Diff styling.** v1 uses `diffWords`. Line-level diffing (`diffLines`) is an alternative for code; we prefer word-level since edits are typically tight. Revisit if the rendered diff is hard to read for whitespace-heavy languages.
+- **`replace_all`.** PRD calls it out of scope. Claude Code's MultiEdit accepts a per-edit `replace_all: true` to substitute every occurrence (uniqueness check is skipped). v1 enforces uniqueness for every edit; if real use cases hit, add `replace_all` as an optional per-edit field.
+- **Diff styling.** v1 uses `diffWords` within each hunk. Line-level diffing (`diffLines`) is an alternative for code; we prefer word-level since edits are typically tight. Revisit if the rendered diff is hard to read for whitespace-heavy languages.
+- **Hunk-merge context window.** Two hunks whose ±2-line context windows overlap are merged into one combined hunk in the renderer. The exact threshold (currently 2) lives as a constant in `editApproval.ts`; if the rendered output feels too dense or too sparse, tweak it before exposing it as a setting.
