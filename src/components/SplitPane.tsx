@@ -92,12 +92,26 @@ export function SplitPane({
           onPointerUp={onPointerUp}
           style={{
             flexShrink: 0,
-            [isHorizontal ? 'width' : 'height']: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            [isHorizontal ? 'width' : 'height']: '10px',
             [isHorizontal ? 'height' : 'width']: '100%',
+            [isHorizontal ? 'marginInline' : 'marginBlock']: '-3px',
             cursor: isHorizontal ? 'col-resize' : 'row-resize',
-            background: 'var(--split-pane-divider, #e5e7eb)',
+            background: 'transparent',
+            zIndex: 1,
           }}
-        />
+        >
+          <div
+            style={{
+              [isHorizontal ? 'width' : 'height']: '4px',
+              [isHorizontal ? 'height' : 'width']: '100%',
+              background: 'var(--split-pane-divider, #e5e7eb)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
       )}
       <div
         style={{
