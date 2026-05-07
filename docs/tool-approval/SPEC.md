@@ -393,6 +393,8 @@ Each issue body should reference this SPEC by section and state `Depends on #N` 
 ## Open Questions
 
 - **Approve-all toggle.** PRD calls it out of scope. If users ask, the cleanest extension point is `<AgentProvider approvalOverride={['!edit_editor']}>` (suppress approval for one tool at runtime). We do not need a custom `onApprovalRequired` for this.
-- **`replace_all`.** PRD calls it out of scope. Claude Code's MultiEdit accepts a per-edit `replace_all: true` to substitute every occurrence (uniqueness check is skipped). v1 enforces uniqueness for every edit; if real use cases hit, add `replace_all` as an optional per-edit field.
 - **Diff styling.** v1 uses `diffWords` within each hunk. Line-level diffing (`diffLines`) is an alternative for code; we prefer word-level since edits are typically tight. Revisit if the rendered diff is hard to read for whitespace-heavy languages.
-- **Hunk-merge context window.** Two hunks whose ±2-line context windows overlap are merged into one combined hunk in the renderer. The exact threshold (currently 2) lives as a constant in `editApproval.ts`; if the rendered output feels too dense or too sparse, tweak it before exposing it as a setting.
+
+## Decisions
+
+- **`multi_edit_editor` / `multi_edit_device_file` — not implemented.** The batched-edit tools were designed to give the user one combined approval for multiple changes, but the simpler approach is better: the agent calls `edit_editor` (or `edit_device_file`) once per change and the user approves each individually. The agent instructions steer the model toward this pattern. Issues #133 and #134 closed.
