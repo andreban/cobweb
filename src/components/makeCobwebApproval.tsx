@@ -7,6 +7,7 @@ import { CobwebApproval } from './CobwebApproval';
 export function makeCobwebApproval(
   getEditorContent: () => string,
   revealEditorRange: (from: number, to: number) => void,
+  readDeviceFile: (path: string) => Promise<string | null>,
 ): RenderApproval {
   return (entry, approval) => (
     <CobwebApproval
@@ -14,6 +15,7 @@ export function makeCobwebApproval(
       approval={approval}
       getEditorContent={getEditorContent}
       revealEditorRange={revealEditorRange}
+      readDeviceFile={readDeviceFile}
     />
   );
 }

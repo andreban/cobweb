@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { diffWords, type ChangeObject } from 'diff';
 import {
   InlineApproval,
@@ -18,6 +18,7 @@ interface ApprovalSlotProps {
 interface CobwebApprovalProps extends ApprovalSlotProps {
   getEditorContent: () => string;
   revealEditorRange: (from: number, to: number) => void;
+  readDeviceFile: (path: string) => Promise<string | null>;
 }
 
 export function CobwebApproval({
@@ -25,6 +26,7 @@ export function CobwebApproval({
   approval,
   getEditorContent,
   revealEditorRange,
+  readDeviceFile,
 }: CobwebApprovalProps): ReactNode {
   switch (entry.name) {
     case 'edit_editor':
@@ -32,8 +34,18 @@ export function CobwebApproval({
         <EditApprovalCard
           entry={entry}
           approval={approval}
-          getEditorContent={getEditorContent}
-          revealEditorRange={revealEditorRange}
+          surface="editor"
+          headerLabel={<>Edit editor</>}
+          source={getEditorContent()}
+          revealRange={revealEditorRange}
+        />
+      );
+    case 'edit_device_file':
+      return (
+        <DeviceEditApprovalLoader
+          entry={entry}
+          approval={approval}
+          readDeviceFile={readDeviceFile}
         />
       );
     case 'write_editor':
@@ -50,27 +62,119 @@ export function CobwebApproval({
   }
 }
 
+// ----- DeviceEditApprovalLoader ---------------------------------------------
+
+interface DeviceEditApprovalLoaderProps extends ApprovalSlotProps {
+  readDeviceFile: (path: string) => Promise<string | null>;
+}
+
+function DeviceEditApprovalLoader({
+  entry,
+  approval,
+  readDeviceFile,
+}: DeviceEditApprovalLoaderProps): ReactNode {
+  const args = entry.args as { path?: unknown } | undefined;
+  const path = typeof args?.path === 'string' ? args.path : '';
+
+  type LoadState =
+    | { kind: 'loading' }
+    | { kind: 'loaded'; source: string }
+    | { kind: 'failed' };
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    readDeviceFile(path).then((source) => {
+      if (cancelled) return;
+      if (source === null) {
+        setState({ kind: 'failed' });
+      } else {
+        setState({ kind: 'loaded', source });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, readDeviceFile]);
+
+  const headerLabel = (
+    <>
+      Edit <code>{path}</code>
+    </>
+  );
+
+  if (state.kind === 'loading') {
+    return (
+      <div className="cobweb-approval-card" data-tool-name={entry.name}>
+        <div className="cobweb-approval-header">
+          <span className="cobweb-approval-title">{headerLabel}</span>
+          <span className="cobweb-approval-status">requires approval</span>
+        </div>
+        <div className="cobweb-approval-notice">
+          <p>Loading file…</p>
+        </div>
+        <ApprovalActions
+          approveDisabled
+          onApprove={approval.approve}
+          onReject={approval.reject}
+        />
+      </div>
+    );
+  }
+
+  if (state.kind === 'failed') {
+    return (
+      <div className="cobweb-approval-card" data-tool-name={entry.name}>
+        <div className="cobweb-approval-header">
+          <span className="cobweb-approval-title">{headerLabel}</span>
+          <span className="cobweb-approval-status">requires approval</span>
+        </div>
+        <NoLongerAppliesNotice
+          message="Cannot edit binary file."
+          respondMessage="Cannot edit binary file."
+          onRespondWith={approval.respondWith}
+        />
+        <ApprovalActions
+          approveDisabled
+          onApprove={approval.approve}
+          onReject={approval.reject}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <EditApprovalCard
+      entry={entry}
+      approval={approval}
+      surface="file"
+      headerLabel={headerLabel}
+      source={state.source}
+    />
+  );
+}
+
 // ----- EditApprovalCard ------------------------------------------------------
 
 interface EditApprovalCardProps extends ApprovalSlotProps {
-  getEditorContent: () => string;
-  revealEditorRange: (from: number, to: number) => void;
+  source: string;
+  surface: 'editor' | 'file';
+  headerLabel: ReactNode;
+  revealRange?: (from: number, to: number) => void;
 }
 
 function EditApprovalCard({
   entry,
   approval,
-  getEditorContent,
-  revealEditorRange,
+  source,
+  surface,
+  headerLabel,
+  revealRange,
 }: EditApprovalCardProps): ReactNode {
   const args = entry.args as { old_string?: unknown; new_string?: unknown } | undefined;
   const oldString = typeof args?.old_string === 'string' ? args.old_string : '';
   const newString = typeof args?.new_string === 'string' ? args.new_string : '';
 
-  // Diff against the live editor — the buffer the user sees right now is the
-  // buffer the edit will apply to, so the renderer must read fresh on every
-  // render rather than caching at construction time.
-  const source = getEditorContent();
   const find = useMemo(
     () => findUniqueOccurrence(source, oldString),
     [source, oldString],
@@ -84,21 +188,32 @@ function EditApprovalCard({
   useEffect(() => {
     if (didReveal.current) return;
     if (find.kind !== 'unique') return;
+    if (!revealRange) return;
     didReveal.current = true;
-    revealEditorRange(find.index, find.index + oldString.length);
-  }, [find, oldString.length, revealEditorRange]);
+    revealRange(find.index, find.index + oldString.length);
+  }, [find, oldString.length, revealRange]);
+
+  const surfaceWord = surface === 'editor' ? 'editor' : 'file';
+  const missingNotice = `old_string was not found in the current ${surfaceWord} — the ${
+    surface === 'editor' ? 'buffer' : 'file'
+  } may have changed since the agent proposed this edit.`;
+  const missingRespond = `old_string not found in ${surfaceWord}.`;
+  const ambiguousNotice = (count: number) =>
+    `old_string is now ambiguous — it appears ${count} times in the current ${surfaceWord}.`;
+  const ambiguousRespond = (count: number) =>
+    `old_string is ambiguous — appears ${count} times. Include more surrounding context.`;
 
   return (
     <div className="cobweb-approval-card" data-tool-name={entry.name}>
       <div className="cobweb-approval-header">
-        <span className="cobweb-approval-title">Edit editor</span>
+        <span className="cobweb-approval-title">{headerLabel}</span>
         <div className="cobweb-approval-header-actions">
-          {find.kind === 'unique' && (
+          {find.kind === 'unique' && revealRange && (
             <button
               type="button"
               className="cobweb-reveal-button"
               onClick={() =>
-                revealEditorRange(find.index, find.index + oldString.length)
+                revealRange(find.index, find.index + oldString.length)
               }
               title="Scroll editor to this location"
             >
@@ -118,14 +233,14 @@ function EditApprovalCard({
         />
       ) : find.kind === 'missing' ? (
         <NoLongerAppliesNotice
-          message="old_string was not found in the current editor — the buffer may have changed since the agent proposed this edit."
-          respondMessage="old_string not found in editor."
+          message={missingNotice}
+          respondMessage={missingRespond}
           onRespondWith={approval.respondWith}
         />
       ) : (
         <NoLongerAppliesNotice
-          message={`old_string is now ambiguous — it appears ${find.count} times in the current editor.`}
-          respondMessage={`old_string is ambiguous — appears ${find.count} times. Include more surrounding context.`}
+          message={ambiguousNotice(find.count)}
+          respondMessage={ambiguousRespond(find.count)}
           onRespondWith={approval.respondWith}
         />
       )}

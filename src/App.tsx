@@ -278,9 +278,25 @@ export function App() {
     return new AgentRunner(adapter, models.tools);
   }, [config]);
 
+  const readDeviceFileForApproval = useCallback(
+    async (path: string): Promise<string | null> => {
+      try {
+        const bytes = await deviceReadBytes(path);
+        try {
+          return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    },
+    [deviceReadBytes],
+  );
+
   const renderApproval = useMemo(
-    () => makeCobwebApproval(getContent, revealRange),
-    [getContent, revealRange],
+    () => makeCobwebApproval(getContent, revealRange, readDeviceFileForApproval),
+    [getContent, revealRange, readDeviceFileForApproval],
   );
 
   const savedConversation = useMemo(
