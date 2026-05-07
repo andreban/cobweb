@@ -58,6 +58,11 @@ vi.mock('codemirror', () => {
     },
   };
   (EditorViewMock as unknown as { theme: (spec: unknown) => unknown[] }).theme = () => [];
+  (EditorViewMock as unknown as { scrollIntoView: (...a: unknown[]) => unknown }).scrollIntoView =
+    () => ({});
+  (EditorViewMock as unknown as { decorations: { from: () => unknown[] } }).decorations = {
+    from: () => [],
+  };
   return { EditorView: EditorViewMock, basicSetup: [] };
 });
 
@@ -69,8 +74,29 @@ vi.mock('@codemirror/state', () => {
   return {
     EditorState: { create: vi.fn().mockReturnValue({}) },
     Compartment: CompartmentMock,
+    EditorSelection: { range: (from: number, to: number) => ({ from, to }) },
+    StateEffect: {
+      define: () => ({
+        of: (value: unknown) => value,
+        is: () => false,
+      }),
+    },
+    StateField: {
+      define: () => ({
+        provide: () => [],
+      }),
+    },
   };
 });
+
+vi.mock('@codemirror/view', () => ({
+  Decoration: {
+    none: [],
+    set: () => [],
+    mark: () => ({ range: () => ({}) }),
+  },
+  EditorView: { decorations: { from: () => [] } },
+}));
 
 vi.mock('@codemirror/lang-python', () => ({
   python: vi.fn().mockReturnValue([]),

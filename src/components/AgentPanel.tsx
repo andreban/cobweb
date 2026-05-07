@@ -1,16 +1,22 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConversationPanel, useAgent } from '@mast-ai/react-ui';
+import { ConversationPanel, useAgent, type RenderApproval } from '@mast-ai/react-ui';
 import { SquarePen } from 'lucide-react';
 
 interface AgentPanelProps {
   theme: 'light' | 'dark';
   inputPlaceholder?: string;
   onResetConversation?: () => void;
+  renderApproval?: RenderApproval;
 }
 
-export function AgentPanel({ theme, inputPlaceholder, onResetConversation }: AgentPanelProps) {
+export function AgentPanel({
+  theme,
+  inputPlaceholder,
+  onResetConversation,
+  renderApproval,
+}: AgentPanelProps) {
   const { reset, messages, isReady } = useAgent();
   const hasMessages = messages.length > 0;
 
@@ -34,7 +40,11 @@ export function AgentPanel({ theme, inputPlaceholder, onResetConversation }: Age
         </button>
       </div>
       <div className="flex-1 min-h-0">
-        <ConversationPanel theme={theme} inputPlaceholder={inputPlaceholder} />
+        <ConversationPanel
+          theme={theme}
+          inputPlaceholder={inputPlaceholder}
+          renderApproval={renderApproval}
+        />
       </div>
     </div>
   );

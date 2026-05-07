@@ -201,10 +201,12 @@ The `default` branch falls back to the bundled `<InlineApproval>` so any future 
 
 ### `EditApprovalCard`
 
-Props (in addition to `entry` + `approval`): a way to read the source content for diffing.
+Props (in addition to `entry` + `approval`):
 
-- For `edit_editor` / `multi_edit_editor`: receives `getEditorContent: () => string`.
-- For `edit_device_file` / `multi_edit_device_file`: receives `readDeviceFile: (path: string) => Promise<string | null>` (returns `null` on binary or read error).
+- A way to read the source content for diffing:
+  - For `edit_editor` / `multi_edit_editor`: `getEditorContent: () => string`.
+  - For `edit_device_file` / `multi_edit_device_file`: `readDeviceFile: (path: string) => Promise<string | null>` (returns `null` on binary or read error).
+- A reveal callback `revealEditorRange: (from: number, to: number) => void` (or, for the device cards once they land, the device-file equivalent). Auto-invoked once on first render of the card so the user immediately sees what part of the buffer the agent is asking about; also wired to a "Reveal" button in the card header so the user can re-scroll to the affected range any time.
 
 Render flow:
 
@@ -223,7 +225,18 @@ Render flow:
    - `multi_edit_editor` → "Edit *editor* — N change(s)"
    - `edit_device_file` → "Edit *`<path>`*"
    - `multi_edit_device_file` → "Edit *`<path>`* — N change(s)"
+
+   The header also carries a small "Reveal" button next to the "requires approval" label whenever `find.kind === 'unique'`, calling `revealEditorRange` (or the device-file equivalent) with the affected range.
 6. **Buttons.** Approve / Reject. Approve calls `approval.approve()`. Reject calls `approval.reject()`.
+
+#### Reveal-in-editor primitive
+
+`useEditor` exposes `revealRange(from, to)` for the editor card and an analogous helper will exist for the device card. The implementation:
+
+1. Dispatches `EditorView.scrollIntoView(EditorSelection.range(from, to), { y: 'center' })` to bring the affected range into the middle of the viewport.
+2. Adds a `cobweb-reveal-highlight` decoration on the range via a dedicated `StateField` + `StateEffect` pair, then clears it after ~1.7s. The `cobweb-reveal-highlight` class fades from amber → transparent via a CSS keyframe (`cobweb-reveal-fade`).
+
+This mirrors the `agent-text-editor` reference: a transient highlight gives the user a visual handshake of "this is the spot the agent wants to change" without permanently marking the buffer.
 
 ### `WriteApprovalCard`
 
@@ -250,6 +263,7 @@ const renderApproval: RenderApproval = (entry, approval) => (
     entry={entry}
     approval={approval}
     getEditorContent={getContent}
+    revealEditorRange={revealRange}
     readDeviceFile={async (p) => {
       try {
         return new TextDecoder('utf-8', { fatal: true }).decode(await deviceReadBytes(p));
@@ -267,9 +281,9 @@ const renderApproval: RenderApproval = (entry, approval) => (
 
 ## Wiring
 
-### `ToolBindings` — no new fields
+### `ToolBindings` — `replaceEditorRange`
 
-`edit_editor` only needs the existing `getEditorContent` and `setEditorContent`. `edit_device_file` only needs the existing `deviceFs`. No new binding required.
+`edit_editor` reads the editor via the existing `getEditorContent` but writes via a new `replaceEditorRange(from: number, to: number, replacement: string)` binding. The implementation dispatches a CodeMirror change scoped to the affected range so the user's scroll position is preserved across the edit; routing through `setEditorContent` (which replaces the entire document) reset the viewport on every Approve. `edit_device_file` only needs the existing `deviceFs`.
 
 ### `wireTools.ts`
 
@@ -319,10 +333,12 @@ No new props needed. The default `onApprovalRequired` is already "INLINE_APPROVA
 **Modify:**
 
 - `src/agent/tools/WriteEditorTool.ts` — flip `requiresApproval` to `true`; tighten description.
-- `src/agent/wireTools.ts` — register the two new tools.
+- `src/agent/wireTools.ts` — register the two new tools; add `replaceEditorRange` to `ToolBindings`.
 - `src/agent/config.ts` — add tool names; rewrite the partial-edit guidance paragraph.
+- `src/hooks/useEditor.ts` — add `replaceRange(from, to, replacement)` (targeted dispatch, scroll-preserving) and `revealRange(from, to)` (scroll into center + temporary highlight via a dedicated `StateField` + `StateEffect`).
 - `src/components/AgentPanel.tsx` — accept `renderApproval` prop; forward to `<ConversationPanel>`.
-- `src/App.tsx` — build the `renderApproval` closure with bindings; pass to `<AgentPanel>`.
+- `src/App.tsx` — register tools synchronously during render (so `<AgentProvider>` sees `requiresApproval` flags on its first memo and installs the approval proxy); build the `renderApproval` closure with editor + reveal bindings; pass to `<AgentPanel>`.
+- `src/index.css` — Cobweb approval-card + diff styles, plus the `cobweb-reveal-highlight` class and `cobweb-reveal-fade` keyframe used by `revealRange`.
 
 **No change:**
 

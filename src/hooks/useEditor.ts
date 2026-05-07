@@ -3,9 +3,43 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
-import { Compartment, EditorState, Extension } from '@codemirror/state';
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Extension,
+  StateEffect,
+  StateField,
+} from '@codemirror/state';
+import { Decoration, type DecorationSet } from '@codemirror/view';
 import { python } from '@codemirror/lang-python';
 import { catppuccinLatte, catppuccinMocha } from '@catppuccin/codemirror';
+
+const REVEAL_HIGHLIGHT_MS = 1700;
+
+const setRevealHighlight = StateEffect.define<{ from: number; to: number } | null>();
+
+const revealHighlightField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    deco = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(setRevealHighlight)) {
+        deco =
+          e.value === null
+            ? Decoration.none
+            : Decoration.set([
+                Decoration.mark({ class: 'cobweb-reveal-highlight' }).range(
+                  e.value.from,
+                  e.value.to,
+                ),
+              ]);
+      }
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 export type EditorOrigin =
   | { kind: 'untitled' }
@@ -67,6 +101,7 @@ export function useEditor(theme: 'light' | 'dark') {
           themeCompartment.current.of(themeExtension(theme)),
           fillHeight,
           modifiedListener,
+          revealHighlightField,
         ],
       }),
       parent: editorRef.current,
@@ -110,6 +145,39 @@ export function useEditor(theme: 'light' | 'dark') {
     });
   }, []);
 
+  // Targeted partial edit. Unlike setContent's full-document replacement,
+  // CodeMirror keeps the viewport stable across small dispatches — so the
+  // user's scroll position is preserved when the agent applies an edit.
+  const replaceRange = useCallback(
+    (from: number, to: number, replacement: string): void => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        changes: { from, to, insert: replacement },
+      });
+    },
+    [],
+  );
+
+  const revealRange = useCallback((from: number, to: number): void => {
+    const view = viewRef.current;
+    if (!view) return;
+    const docLen = view.state.doc.length;
+    const safeFrom = Math.max(0, Math.min(from, docLen));
+    const safeTo = Math.max(safeFrom, Math.min(to, docLen));
+    view.dispatch({
+      effects: [
+        EditorView.scrollIntoView(EditorSelection.range(safeFrom, safeTo), { y: 'center' }),
+        setRevealHighlight.of({ from: safeFrom, to: safeTo }),
+      ],
+    });
+    setTimeout(() => {
+      const v = viewRef.current;
+      if (!v) return;
+      v.dispatch({ effects: setRevealHighlight.of(null) });
+    }, REVEAL_HIGHLIGHT_MS);
+  }, []);
+
   const setOriginAndContent = useCallback((newOrigin: EditorOrigin, content: string): void => {
     snapshotRef.current = content;
     originRef.current = newOrigin;
@@ -128,5 +196,14 @@ export function useEditor(theme: 'light' | 'dark') {
     }
   }, []);
 
-  return { editorRef, getContent, setContent, origin, setOriginAndContent, isModified };
+  return {
+    editorRef,
+    getContent,
+    setContent,
+    replaceRange,
+    revealRange,
+    origin,
+    setOriginAndContent,
+    isModified,
+  };
 }
