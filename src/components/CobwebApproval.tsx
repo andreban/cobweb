@@ -48,8 +48,54 @@ export function CobwebApproval({
           readDeviceFile={readDeviceFile}
         />
       );
-    case 'write_editor':
-      return <WriteApprovalCard entry={entry} approval={approval} />;
+    case 'write_editor': {
+      const weArgs = entry.args as { code?: unknown } | undefined;
+      const code = typeof weArgs?.code === 'string' ? weArgs.code : '';
+      return (
+        <WriteApprovalCard
+          entry={entry}
+          approval={approval}
+          header="Replace editor with new content"
+          content={code}
+        />
+      );
+    }
+    case 'write_device_file': {
+      const wdfArgs = entry.args as { path?: unknown; content?: unknown } | undefined;
+      const wdfPath = typeof wdfArgs?.path === 'string' ? wdfArgs.path : '';
+      const wdfContent = typeof wdfArgs?.content === 'string' ? wdfArgs.content : '';
+      return (
+        <WriteApprovalCard
+          entry={entry}
+          approval={approval}
+          header={<>Write <code>{wdfPath}</code></>}
+          content={wdfContent}
+        />
+      );
+    }
+    case 'delete_device_file': {
+      const ddfArgs = entry.args as { path?: unknown } | undefined;
+      const ddfPath = typeof ddfArgs?.path === 'string' ? ddfArgs.path : '';
+      return (
+        <ConfirmApprovalCard
+          entry={entry}
+          approval={approval}
+          header={<>Delete <code>{ddfPath}</code></>}
+          destructive
+        />
+      );
+    }
+    case 'make_device_dir': {
+      const mddArgs = entry.args as { path?: unknown } | undefined;
+      const mddPath = typeof mddArgs?.path === 'string' ? mddArgs.path : '';
+      return (
+        <ConfirmApprovalCard
+          entry={entry}
+          approval={approval}
+          header={<>Create directory <code>{mddPath}</code></>}
+        />
+      );
+    }
     default:
       return (
         <InlineApproval
@@ -256,14 +302,43 @@ function EditApprovalCard({
 
 // ----- WriteApprovalCard ----------------------------------------------------
 
-function WriteApprovalCard({ entry, approval }: ApprovalSlotProps): ReactNode {
+interface WriteApprovalCardProps extends ApprovalSlotProps {
+  header: ReactNode;
+  content: string;
+}
+
+function WriteApprovalCard({ entry, approval, header, content }: WriteApprovalCardProps): ReactNode {
   return (
     <div className="cobweb-approval-card" data-tool-name={entry.name}>
       <div className="cobweb-approval-header">
-        <span className="cobweb-approval-title">Replace editor with new content</span>
+        <span className="cobweb-approval-title">{header}</span>
         <span className="cobweb-approval-status">requires approval</span>
       </div>
+      <pre className="cobweb-approval-preview">{content}</pre>
       <ApprovalActions onApprove={approval.approve} onReject={approval.reject} />
+    </div>
+  );
+}
+
+// ----- ConfirmApprovalCard --------------------------------------------------
+
+interface ConfirmApprovalCardProps extends ApprovalSlotProps {
+  header: ReactNode;
+  destructive?: boolean;
+}
+
+function ConfirmApprovalCard({ entry, approval, header, destructive = false }: ConfirmApprovalCardProps): ReactNode {
+  return (
+    <div className="cobweb-approval-card" data-tool-name={entry.name}>
+      <div className="cobweb-approval-header">
+        <span className="cobweb-approval-title">{header}</span>
+        <span className="cobweb-approval-status">requires approval</span>
+      </div>
+      <ApprovalActions
+        destructiveApprove={destructive}
+        onApprove={approval.approve}
+        onReject={approval.reject}
+      />
     </div>
   );
 }
@@ -436,20 +511,25 @@ function NoLongerAppliesNotice({
 
 interface ApprovalActionsProps {
   approveDisabled?: boolean;
+  destructiveApprove?: boolean;
   onApprove: () => void;
   onReject: () => void;
 }
 
 function ApprovalActions({
   approveDisabled = false,
+  destructiveApprove = false,
   onApprove,
   onReject,
 }: ApprovalActionsProps): ReactNode {
+  const approveClass = destructiveApprove
+    ? 'cobweb-approval-button cobweb-approval-button-approve-destructive'
+    : 'cobweb-approval-button cobweb-approval-button-approve';
   return (
     <div className="cobweb-approval-actions">
       <button
         type="button"
-        className="cobweb-approval-button cobweb-approval-button-approve"
+        className={approveClass}
         onClick={onApprove}
         disabled={approveDisabled}
       >
