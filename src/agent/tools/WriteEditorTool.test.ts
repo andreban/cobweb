@@ -9,6 +9,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
+    replaceEditorRange: () => {},
     runCode: async () => ({stdout: '', stderr: ''}),
     getReplHistory: () => [],
     onData: () => () => {},
@@ -23,7 +24,7 @@ describe('WriteEditorTool', () => {
     const def = tool.definition();
     expect(def.name).toBe('write_editor');
     expect(def.scope).toBe('write');
-    expect(def.requiresApproval).toBe(false);
+    expect(def.requiresApproval).toBe(true);
   });
 
   it('definition requires the code argument', () => {

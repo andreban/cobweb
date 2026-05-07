@@ -14,6 +14,7 @@ import { DeviceFileNavigator } from './components/DeviceFileNavigator';
 import { EditorBanner } from './components/EditorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AgentPanel } from './components/AgentPanel';
+import { makeCobwebApproval } from './components/makeCobwebApproval';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor, type EditorOrigin } from './hooks/useEditor';
 import { useDeviceFs } from './hooks/useDeviceFs';
@@ -35,8 +36,16 @@ export function App() {
     useReplConnection();
   const { config, save: saveConfig, clear: clearConfig } = useProviderConfig();
   const { theme, preference: themePreference, cycle: cycleTheme } = useTheme();
-  const { editorRef, getContent, setContent, origin, setOriginAndContent, isModified } =
-    useEditor(theme);
+  const {
+    editorRef,
+    getContent,
+    setContent,
+    replaceRange,
+    revealRange,
+    origin,
+    setOriginAndContent,
+    isModified,
+  } = useEditor(theme);
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
   const {
@@ -248,22 +257,31 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleSaveClick]);
 
-  useEffect(() => {
-    wireTools(models.tools, {
-      getEditorContent: getContent,
-      setEditorContent: setContent,
-      runCode,
-      getReplHistory: () => replHistory,
-      onData,
-      deviceFs,
-    });
-  }, [getContent, setContent, runCode, replHistory, onData, deviceFs]);
+  // Register tool definitions during render — AgentProvider inspects the
+  // registry on its first memo to decide whether to install the approval
+  // proxy, so the tools (and their `requiresApproval` flags) must be in the
+  // registry before the provider mounts. wireTools is idempotent: the first
+  // call registers, every subsequent call only refreshes the bindings.
+  wireTools(models.tools, {
+    getEditorContent: getContent,
+    setEditorContent: setContent,
+    replaceEditorRange: replaceRange,
+    runCode,
+    getReplHistory: () => replHistory,
+    onData,
+    deviceFs,
+  });
 
   const runner = useMemo(() => {
     if (!config) return null;
     const adapter = createAdapter(config);
     return new AgentRunner(adapter, models.tools);
   }, [config]);
+
+  const renderApproval = useMemo(
+    () => makeCobwebApproval(getContent, revealRange),
+    [getContent, revealRange],
+  );
 
   const savedConversation = useMemo(
     () => JSON.parse(localStorage.getItem('cobweb:conversation') ?? 'null') as {
@@ -430,6 +448,7 @@ export function App() {
                     theme={theme}
                     inputPlaceholder="Ask the assistant…"
                     onResetConversation={() => localStorage.removeItem('cobweb:conversation')}
+                    renderApproval={renderApproval}
                   />,
                 ]}
               </SplitPane>,

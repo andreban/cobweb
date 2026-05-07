@@ -6,6 +6,7 @@ import type { RunResult } from '../ReplInterface';
 import type { DeviceFs } from '../DeviceFs';
 import { ReadEditorTool } from './tools/ReadEditorTool';
 import { WriteEditorTool } from './tools/WriteEditorTool';
+import { EditEditorTool } from './tools/EditEditorTool';
 import { RunEditorTool } from './tools/RunEditorTool';
 import { RunSnippetTool } from './tools/RunSnippetTool';
 import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
@@ -18,6 +19,11 @@ import { MakeDeviceDirTool } from './tools/MakeDeviceDirTool';
 export interface ToolBindings {
   getEditorContent(): string;
   setEditorContent(code: string): void;
+  /**
+   * Targeted partial edit. Used by `edit_editor` so the user's scroll
+   * position is preserved after the edit applies.
+   */
+  replaceEditorRange(from: number, to: number, replacement: string): void;
   runCode(code: string): Promise<RunResult>;
   getReplHistory(): string[];
   onData(handler: (data: Uint8Array) => void): () => void;
@@ -40,6 +46,7 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
 
   tools.register(new ReadEditorTool(get));
   tools.register(new WriteEditorTool(get));
+  tools.register(new EditEditorTool(get));
   tools.register(new RunEditorTool(get));
   tools.register(new RunSnippetTool(get));
   tools.register(new ReadReplHistoryTool(get));

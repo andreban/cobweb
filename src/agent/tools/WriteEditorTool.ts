@@ -15,7 +15,9 @@ export class WriteEditorTool implements Tool<WriteEditorArgs, string> {
     return {
       name: 'write_editor',
       description:
-        "Replaces the entire contents of the user's code editor with the given code.",
+        "Replaces the entire contents of the user's code editor with the given code. Use " +
+        'this only for new programs or full rewrites; use `edit_editor` for partial changes. ' +
+        'Requires user approval.',
       parameters: {
         type: 'object',
         properties: {
@@ -28,7 +30,7 @@ export class WriteEditorTool implements Tool<WriteEditorArgs, string> {
         additionalProperties: false,
       },
       scope: 'write',
-      requiresApproval: false,
+      requiresApproval: true,
     };
   }
 
