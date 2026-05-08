@@ -16,7 +16,8 @@ For short evaluations whose output you need back (sensor reads, expression eval,
 To inspect the device's filesystem (e.g. to confirm what's on the board before writing or running code), use list_device_files. To read the contents of a specific file on the device, use read_device_file; it returns "binary file — cannot read" for non-UTF-8 files.
 To change an existing file on the device, you MUST use edit_device_file — same old_string/new_string contract as edit_editor. For multiple changes to the same device file, call edit_device_file once per change. Do not use write_device_file for edits. write_device_file is only permitted for brand-new device files or explicit full rewrites. Prefer edit_editor or write_editor for buffers the user is iterating on; only write to the device when explicitly asked or when the change is meant to persist (e.g. main.py, boot.py).
 To delete a file on the device, use delete_device_file. It does not delete directories and requires user approval.
-To create a directory on the device, use make_device_dir. The parent directory must already exist; it requires user approval.`,
+To create a directory on the device, use make_device_dir. The parent directory must already exist; it requires user approval.
+Use stop_program to send Ctrl+C and interrupt a running program.`,
   tools: [
     'read_editor',
     'write_editor',
@@ -30,5 +31,6 @@ To create a directory on the device, use make_device_dir. The parent directory m
     'edit_device_file',
     'delete_device_file',
     'make_device_dir',
+    'stop_program',
   ],
 });
