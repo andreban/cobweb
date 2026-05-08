@@ -28,6 +28,7 @@ describe('wireTools', () => {
       'delete_device_file',
       'edit_device_file',
       'edit_editor',
+      'get_board_info',
       'list_device_files',
       'make_device_dir',
       'read_device_file',
@@ -45,7 +46,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(13);
+    expect(tools.getTools()).toHaveLength(14);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {

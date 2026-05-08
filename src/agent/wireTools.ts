@@ -17,6 +17,7 @@ import { WriteDeviceFileTool } from './tools/WriteDeviceFileTool';
 import { DeleteDeviceFileTool } from './tools/DeleteDeviceFileTool';
 import { MakeDeviceDirTool } from './tools/MakeDeviceDirTool';
 import { StopProgramTool } from './tools/StopProgramTool';
+import { GetBoardInfoTool } from './tools/GetBoardInfoTool';
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -60,4 +61,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new DeleteDeviceFileTool(get));
   tools.register(new MakeDeviceDirTool(get));
   tools.register(new StopProgramTool(get));
+  tools.register(new GetBoardInfoTool(get));
 }
