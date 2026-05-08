@@ -55,63 +55,72 @@ In `App.tsx`:
 
 ---
 
-## 2. Board context injection
+## 2. `get_board_info` tool
+
+Rather than probing the board at connect time and injecting the result into the system prompt, board information is exposed as a tool the agent can call on demand. This avoids connect-time latency and system prompt bloat for sessions where board context is never needed.
 
 ### Probe snippet
 
-Run once after connect (short timeout, e.g. 5 s):
 ```python
-import sys,gc;print(sys.implementation.name,sys.implementation.version,sys.platform,gc.mem_free())
+import sys,gc,os;print(sys.implementation.name,sys.implementation.version,sys.platform,gc.mem_free());print(os.uname().machine)
 ```
 
-Expected stdout: `micropython (1, 23, 0, '') rp2 200000` (fields space-separated; version is a Python tuple repr).
-
-### `BoardInfo` type
-
-```ts
-interface BoardInfo {
-  name: string;      // e.g. "micropython"
-  version: string;   // e.g. "1.23.0" (dots joined from tuple prefix)
-  platform: string;  // e.g. "rp2"
-  freeRam: number;   // bytes
-}
+Expected stdout (two lines):
+```
+micropython (1, 26, 0, '') rp2 7633920
+Presto with RP2350
 ```
 
-### `probeBoard` utility — `src/agent/probeBoard.ts`
+Line 1: firmware fields space-separated; version is a Python tuple repr. Line 2: machine name from `os.uname().machine` (may contain spaces).
 
-```ts
-async function probeBoard(
-  runCode: (code: string) => Promise<{ stdout: string; stderr: string }>
-): Promise<BoardInfo | null>
-```
+### `GetBoardInfoTool` — `src/agent/tools/GetBoardInfoTool.ts`
 
-Parses stdout by splitting on spaces and extracting fields. The version tuple `(1, 23, 0, '')` is parsed by stripping parens, splitting on `, `, taking numeric elements, and joining with `.`. Returns `null` on any parse failure, timeout, or non-empty stderr.
+**`ToolDefinition`:**
+- `name: 'get_board_info'`
+- `scope: 'read'`
+- `requiresApproval: false`
+- Description: `"Queries the connected MicroPython board for its firmware version, platform, and available RAM. Call this at the start of a session to understand what board you are working with."`
+- Args: `{}` (none)
 
-### Dynamic agent instructions — `config.ts`
+**`call()` body:**
+1. Run the probe snippet via `bindings.runCode(PROBE_SNIPPET)` with a 5 s timeout.
+2. If timeout → return `'Board info unavailable: probe timed out.'`
+3. If `stderr` is non-empty → return `` `Board info unavailable: ${stderr.trim()}` ``
+4. Split stdout by `\n`, trim and filter blank lines. Parse line 1 with `/^(\S+)\s+\(([^)]+)\)\s+(\S+)\s+(\d+)$/`:
+   - `name` = group 1
+   - `version` = group 2 split on `', '`, numeric parts only, joined with `.`
+   - `platform` = group 3
+   - `freeRamKb` = `Math.round(parseInt(group 4) / 1024)`
+   - `machine` = line 2 if present, otherwise `undefined`
+5. If line 1 parse fails → return `'Board info unavailable: unexpected probe output.'`
+6. `boardLabel = machine ?? \`${name} on ${platform}\``
+7. Return `` `Connected board: ${boardLabel} (${name} ${version}, free RAM: ~${freeRamKb} KB)` ``
 
-Replace the `CODING_AGENT` constant with a `createCodingAgent(boardInfo?: BoardInfo | null)` factory function. When `boardInfo` is provided, prepend a one-line preamble to `instructions`:
+**Timeout:** 5 000 ms (well below `ReplInterface.sendRaw`'s 30 s default).
 
-```
-Connected board: micropython 1.23.0 on rp2 (free RAM: ~195 KB)
-```
+### `config.ts` instructions update
 
-`App.tsx` passes `createCodingAgent(boardInfo)` as the `agent` prop, memoised on `boardInfo`.
+Add `'get_board_info'` to the `tools` list. Add one sentence to `instructions`: `"Use get_board_info to learn the board's firmware version, platform, and available RAM before writing board-specific code."`
 
-### `App.tsx` wiring
+### Tests — `GetBoardInfoTool.test.ts`
 
-- Add `boardInfo` state: `const [boardInfo, setBoardInfo] = useState<BoardInfo | null>(null)`.
-- `useEffect` on `connectionState`: when it becomes `'connected'`, call `probeBoard(runCode).then(setBoardInfo)`; when it becomes `'disconnected'`, call `setBoardInfo(null)`.
-- `const agent = useMemo(() => createCodingAgent(boardInfo), [boardInfo])` — pass as `agent={agent}` to `<AgentProvider>`.
+- Both lines present → `'Connected board: Presto with RP2350 (micropython 1.26.0, free RAM: ~7455 KB)'`
+- Machine line absent → falls back to `name on platform` in board label
+- Malformed stdout → `'Board info unavailable: unexpected probe output.'`
+- Empty stdout → `'Board info unavailable: unexpected probe output.'`
+- Non-empty stderr → `'Board info unavailable: ...'`
+- Timeout (fake timers, advance 5 000 ms) → `'Board info unavailable: probe timed out.'`
+- Abort signal fires → rejects
 
 ### File map
 
 **Add:**
-- `src/agent/probeBoard.ts`
-- `src/agent/probeBoard.test.ts`
+- `src/agent/tools/GetBoardInfoTool.ts`
+- `src/agent/tools/GetBoardInfoTool.test.ts`
 
 **Modify:**
-- `src/agent/config.ts` — `CODING_AGENT` → `createCodingAgent(boardInfo?)` factory
-- `src/App.tsx` — board probe effect; `boardInfo` state; memoised `agent`
+- `src/agent/wireTools.ts` — register `GetBoardInfoTool`
+- `src/agent/config.ts` — add `'get_board_info'` to tools list; add instruction sentence
 
 ---
 
@@ -257,7 +266,7 @@ Add or update `src/agent/tools/RunSnippetTool.test.ts`:
 | Issue | Title | Files added | Files modified |
 |-------|-------|-------------|----------------|
 | A | `stop_program` tool + toolbar Stop button | `StopProgramTool.ts`, `.test.ts` | `wireTools.ts`, `config.ts`, `Toolbar.tsx`, `App.tsx` |
-| B | Board context injection | `probeBoard.ts`, `.test.ts` | `config.ts`, `App.tsx` |
+| B | `get_board_info` tool | `GetBoardInfoTool.ts`, `.test.ts` | `wireTools.ts`, `config.ts` |
 | C | `open_device_file_in_editor` + `save_editor_to_device` | 4 tool + test files | `wireTools.ts`, `config.ts`, `CobwebApproval.tsx` |
 | D | Structured `run_snippet` output | — | `RunSnippetTool.ts` |
 
