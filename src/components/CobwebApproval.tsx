@@ -73,6 +73,30 @@ export function CobwebApproval({
         />
       );
     }
+    case 'open_device_file_in_editor': {
+      const odfArgs = entry.args as { path?: unknown } | undefined;
+      const odfPath = typeof odfArgs?.path === 'string' ? odfArgs.path : '';
+      return (
+        <OpenDeviceFileApprovalLoader
+          entry={entry}
+          approval={approval}
+          path={odfPath}
+          readDeviceFile={readDeviceFile}
+        />
+      );
+    }
+    case 'save_editor_to_device': {
+      const setdArgs = entry.args as { path?: unknown } | undefined;
+      const setdPath = typeof setdArgs?.path === 'string' ? setdArgs.path : '';
+      return (
+        <WriteApprovalCard
+          entry={entry}
+          approval={approval}
+          header={<>Save editor to <code>{setdPath}</code></>}
+          content={getEditorContent()}
+        />
+      );
+    }
     case 'delete_device_file': {
       const ddfArgs = entry.args as { path?: unknown } | undefined;
       const ddfPath = typeof ddfArgs?.path === 'string' ? ddfArgs.path : '';
@@ -196,6 +220,96 @@ function DeviceEditApprovalLoader({
       surface="file"
       headerLabel={headerLabel}
       source={state.source}
+    />
+  );
+}
+
+// ----- OpenDeviceFileApprovalLoader -----------------------------------------
+
+interface OpenDeviceFileApprovalLoaderProps extends ApprovalSlotProps {
+  path: string;
+  readDeviceFile: (path: string) => Promise<string | null>;
+}
+
+function OpenDeviceFileApprovalLoader({
+  entry,
+  approval,
+  path,
+  readDeviceFile,
+}: OpenDeviceFileApprovalLoaderProps): ReactNode {
+  type LoadState =
+    | { kind: 'loading' }
+    | { kind: 'loaded'; content: string }
+    | { kind: 'failed' };
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    readDeviceFile(path).then((content) => {
+      if (cancelled) return;
+      if (content === null) {
+        setState({ kind: 'failed' });
+      } else {
+        setState({ kind: 'loaded', content });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, readDeviceFile]);
+
+  const header = (
+    <>
+      Open <code>{path}</code> in editor
+    </>
+  );
+
+  if (state.kind === 'loading') {
+    return (
+      <div className="cobweb-approval-card" data-tool-name={entry.name}>
+        <div className="cobweb-approval-header">
+          <span className="cobweb-approval-title">{header}</span>
+          <span className="cobweb-approval-status">requires approval</span>
+        </div>
+        <div className="cobweb-approval-notice">
+          <p>Loading file…</p>
+        </div>
+        <ApprovalActions
+          approveDisabled
+          onApprove={approval.approve}
+          onReject={approval.reject}
+        />
+      </div>
+    );
+  }
+
+  if (state.kind === 'failed') {
+    return (
+      <div className="cobweb-approval-card" data-tool-name={entry.name}>
+        <div className="cobweb-approval-header">
+          <span className="cobweb-approval-title">{header}</span>
+          <span className="cobweb-approval-status">requires approval</span>
+        </div>
+        <NoLongerAppliesNotice
+          message="File preview unavailable."
+          respondMessage="File preview unavailable."
+          onRespondWith={approval.respondWith}
+        />
+        <ApprovalActions
+          approveDisabled
+          onApprove={approval.approve}
+          onReject={approval.reject}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <WriteApprovalCard
+      entry={entry}
+      approval={approval}
+      header={header}
+      content={state.content}
     />
   );
 }
