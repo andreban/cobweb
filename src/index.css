@@ -169,6 +169,22 @@
   }
 }
 
+/* ---------- mast-ai layout overrides ---------- */
+
+.mast-message-list {
+    padding: 8px;
+    border-radius: 0;
+}
+
+[data-mast-chat-input] {
+    border-radius: 0;
+    padding: 8px;
+}
+
+.mast-chat-input-textarea {
+    min-height: calc(4 * 1.5em);
+}
+
 /* ---------- Cobweb tool-approval cards ---------- */
 
 .cobweb-approval-card {
