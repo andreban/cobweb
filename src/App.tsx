@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AgentProvider } from '@mast-ai/react-ui';
+import { AgentProvider, INLINE_APPROVAL } from '@mast-ai/react-ui';
 import { AgentRunner } from '@mast-ai/core';
 import { SplitPane } from './components/SplitPane';
 import { StatusBar } from './components/StatusBar';
@@ -330,6 +330,16 @@ export function App() {
     <AgentProvider
       runner={runner}
       agent={CODING_AGENT}
+      onApprovalRequired={async (toolCall) => {
+        if (
+          (toolCall.name === 'open_device_file_in_editor' ||
+            toolCall.name === 'save_editor_to_device') &&
+          deviceFs === null
+        ) {
+          return 'Device is not connected.';
+        }
+        return INLINE_APPROVAL;
+      }}
       onConversationChange={(history, entries) => {
         localStorage.setItem('cobweb:conversation', JSON.stringify({ history, entries }));
       }}

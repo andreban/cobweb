@@ -31,11 +31,13 @@ describe('wireTools', () => {
       'get_board_info',
       'list_device_files',
       'make_device_dir',
+      'open_device_file_in_editor',
       'read_device_file',
       'read_editor',
       'read_repl_history',
       'run_editor',
       'run_snippet',
+      'save_editor_to_device',
       'stop_program',
       'write_device_file',
       'write_editor',
@@ -46,7 +48,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(14);
+    expect(tools.getTools()).toHaveLength(16);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {

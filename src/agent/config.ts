@@ -18,7 +18,8 @@ To change an existing file on the device, you MUST use edit_device_file — same
 To delete a file on the device, use delete_device_file. It does not delete directories and requires user approval.
 To create a directory on the device, use make_device_dir. The parent directory must already exist; it requires user approval.
 Use stop_program to send Ctrl+C and interrupt a running program.
-Use get_board_info to learn the board's firmware version, platform, and available RAM before writing board-specific code.`,
+Use get_board_info to learn the board's firmware version, platform, and available RAM before writing board-specific code.
+Use open_device_file_in_editor to open a device file in the editor in one step (instead of read_device_file + write_editor). Use save_editor_to_device to save the editor buffer to a device path in one step (instead of read_editor + write_device_file).`,
   tools: [
     'read_editor',
     'write_editor',
@@ -34,5 +35,7 @@ Use get_board_info to learn the board's firmware version, platform, and availabl
     'make_device_dir',
     'stop_program',
     'get_board_info',
+    'open_device_file_in_editor',
+    'save_editor_to_device',
   ],
 });
