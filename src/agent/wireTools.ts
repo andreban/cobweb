@@ -16,6 +16,7 @@ import { ReadDeviceFileTool } from './tools/ReadDeviceFileTool';
 import { WriteDeviceFileTool } from './tools/WriteDeviceFileTool';
 import { DeleteDeviceFileTool } from './tools/DeleteDeviceFileTool';
 import { MakeDeviceDirTool } from './tools/MakeDeviceDirTool';
+import { StopProgramTool } from './tools/StopProgramTool';
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -29,6 +30,7 @@ export interface ToolBindings {
   getReplHistory(): string[];
   onData(handler: (data: Uint8Array) => void): () => void;
   deviceFs: DeviceFs | null;
+  sendInterrupt(): void;
 }
 
 const REGISTERED = new WeakSet<ToolRegistry>();
@@ -57,4 +59,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new EditDeviceFileTool(get));
   tools.register(new DeleteDeviceFileTool(get));
   tools.register(new MakeDeviceDirTool(get));
+  tools.register(new StopProgramTool(get));
 }

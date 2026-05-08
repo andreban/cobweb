@@ -1,7 +1,7 @@
 // Copyright 2026 Andre Cipriani Bandarra
 // SPDX-License-Identifier: Apache-2.0
 
-import { Monitor, Moon, Play, Plug, RotateCcw, Save, Settings, Sun, Unplug } from 'lucide-react';
+import { Monitor, Moon, Play, Plug, RotateCcw, Save, Settings, Square, Sun, Unplug } from 'lucide-react';
 
 type ConnectionState = 'disconnected' | 'connected';
 type ThemePreference = 'light' | 'dark' | 'system';
@@ -12,6 +12,7 @@ interface ToolbarProps {
   onDisconnect: () => void;
   onReset: () => void;
   onRun: () => void;
+  onStop: () => void;
   onSave: () => void;
   saveEnabled: boolean;
   onOpenSettings: () => void;
@@ -37,6 +38,7 @@ export function Toolbar({
   onDisconnect,
   onReset,
   onRun,
+  onStop,
   onSave,
   saveEnabled,
   onOpenSettings,
@@ -58,7 +60,7 @@ export function Toolbar({
           <button
             onClick={onDisconnect}
             title="Disconnect"
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors text-green-600 dark:text-green-400"
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent active:opacity-75 transition-colors text-green-600 dark:text-green-400"
           >
             <Unplug size={14} />
             Disconnect
@@ -67,7 +69,7 @@ export function Toolbar({
           <button
             onClick={onConnect}
             title="Connect to device"
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent active:opacity-75 transition-colors"
           >
             <Plug size={14} />
             Connect
@@ -78,7 +80,7 @@ export function Toolbar({
           onClick={onReset}
           disabled={!connected}
           title="Reset device"
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent active:opacity-75 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <RotateCcw size={14} />
           Reset
@@ -88,17 +90,27 @@ export function Toolbar({
           onClick={onRun}
           disabled={!connected}
           title="Run current file"
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 active:opacity-75 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Play size={14} />
           Run
         </button>
 
         <button
+          onClick={onStop}
+          disabled={!connected}
+          title="Stop running program"
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent active:opacity-75 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Square size={14} />
+          Stop
+        </button>
+
+        <button
           onClick={onSave}
           disabled={!saveEnabled}
           title={`Save (${SAVE_SHORTCUT_LABEL})`}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-accent active:opacity-75 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Save size={14} />
           Save
@@ -110,7 +122,7 @@ export function Toolbar({
       <button
         onClick={onCycleTheme}
         title={THEME_LABEL[themePreference]}
-        className="p-1.5 rounded hover:bg-accent transition-colors"
+        className="p-1.5 rounded hover:bg-accent active:opacity-75 transition-colors"
       >
         <ThemeIcon size={14} />
       </button>
@@ -118,7 +130,7 @@ export function Toolbar({
       <button
         onClick={onOpenSettings}
         title="Settings"
-        className="p-1.5 rounded hover:bg-accent transition-colors"
+        className="p-1.5 rounded hover:bg-accent active:opacity-75 transition-colors"
       >
         <Settings size={14} />
       </button>

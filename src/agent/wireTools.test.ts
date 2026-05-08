@@ -14,6 +14,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
     getReplHistory: () => [],
     onData: () => () => {},
     deviceFs: null,
+    sendInterrupt: () => {},
     ...overrides,
   };
 }
@@ -34,6 +35,7 @@ describe('wireTools', () => {
       'read_repl_history',
       'run_editor',
       'run_snippet',
+      'stop_program',
       'write_device_file',
       'write_editor',
     ]);
@@ -43,7 +45,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(12);
+    expect(tools.getTools()).toHaveLength(13);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {

@@ -270,6 +270,7 @@ export function App() {
     getReplHistory: () => replHistory,
     onData,
     deviceFs,
+    sendInterrupt: () => send('\x03'),
   });
 
   const runner = useMemo(() => {
@@ -347,6 +348,7 @@ export function App() {
             // promise rejection.
             runCode(getContent()).catch((err) => console.error('Run failed:', err));
           }}
+          onStop={() => send('\x03')}
           onSave={handleSaveClick}
           saveEnabled={origin.kind !== 'device' || deviceFsHook.isAvailable}
           onOpenSettings={() => setIsSettingsOpen(true)}
