@@ -23,8 +23,9 @@ import { useProviderConfig } from './hooks/useProviderConfig';
 import { useTheme } from './hooks/useTheme';
 import { createModels } from './models';
 import { createAdapter } from './providers/factory';
-import { CODING_AGENT } from './agent/config';
+import { PLANNING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
+import { createDelegateToCoderTool } from './agent/tools/DelegateToCoderTool';
 import { DeviceFs } from './DeviceFs';
 import { saveEditor } from './lib/saveEditor';
 import { dirname, join } from './lib/devicePath';
@@ -279,6 +280,16 @@ export function App() {
     return new AgentRunner(adapter, models.tools);
   }, [config]);
 
+  // Sub-agent tool calls do not yet trigger onApprovalRequired —
+  // AgentProvider's approval wrapping is private to its internal runner
+  // (andreban/mast-ai#128). The coder's writes execute unguarded until
+  // that upstream fix ships.
+  useEffect(() => {
+    if (!runner) return;
+    if (models.tools.getTool('delegate_to_coder')) return;
+    models.tools.register(createDelegateToCoderTool(runner));
+  }, [runner]);
+
   const readDeviceFileForApproval = useCallback(
     async (path: string): Promise<string | null> => {
       try {
@@ -329,7 +340,7 @@ export function App() {
   return (
     <AgentProvider
       runner={runner}
-      agent={CODING_AGENT}
+      agent={PLANNING_AGENT}
       onApprovalRequired={async (toolCall) => {
         if (
           (toolCall.name === 'open_device_file_in_editor' ||
