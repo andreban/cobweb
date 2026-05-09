@@ -6,8 +6,8 @@
 
 - `createAgentTool()` (`node_modules/@mast-ai/core/dist/agentTool.d.ts`) wraps an `AgentConfig` as a `Tool`, so a parent agent can invoke a sub-agent as just another tool call.
 - Sub-agent runs share the parent's `AgentRunner` and `ToolRegistry`. Per-agent tool visibility is filtered by the `AgentConfig.tools` allowlist (`runner.js:140-149`).
-- `RunBuilder.forwardTo(parentContext)` (`runner.js:54-57`), which `createAgentTool` calls internally, forwards every non-`done` child event to the parent's `context.onEvent`. The parent's UI populates `subThinking` / `subText` / `nestedToolEvents` automatically.
-- `@mast-ai/react-ui`'s `ConversationPanel` already renders `ToolEventEntry.nestedToolEvents`. Approvals for write tools called by the sub-agent flow through the same `AgentProvider.onApprovalRequired`, because the sub-agent runs on the same registry.
+- `RunBuilder.forwardTo(parentContext)` (`runner.js:54-57`), which `createAgentTool` calls internally, forwards every non-`done` child event to the parent's `context.onEvent`. The parent's UI populates `subText` / `nestedContentBlocks` automatically.
+- `@mast-ai/react-ui`'s `ConversationPanel` already renders `ToolEventEntry.nestedContentBlocks` (interleaved sub-agent thinking and nested tool events in source order). Approvals for write tools called by the sub-agent flow through the same `AgentProvider.onApprovalRequired`, because the sub-agent runs on the same registry.
 
 The work in this SPEC is therefore: a new agent config, a thin tool factory, an `App.tsx` rewire, and a browser verification pass.
 
@@ -136,7 +136,7 @@ To keep the `task` string itself small, the planner is instructed (§1) to refer
 - The planner's `read_editor` etc. show as top-level tool entries.
 - The coder's `edit_editor` etc. show nested under the `delegate_to_coder` entry.
 - The approval modal for nested write tools (`edit_editor`, `run_editor`) fires identically to today.
-- `subThinking` / `subText` from the coder render legibly inside the delegate entry.
+- Sub-agent thinking and nested tool events from the coder (carried via `nestedContentBlocks` and `subText`) render legibly inside the delegate entry, interleaved in source order.
 
 If nesting renders poorly (cramped layout, no visual differentiation, hard to tell which tool belongs to which agent), file follow-up issue C with a specific UI ask. Do **not** pre-emptively customise `renderToolCall` or `getToolLabel`.
 
