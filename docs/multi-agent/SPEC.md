@@ -101,14 +101,6 @@ To keep the `task` string itself small, the planner is instructed (§1) to refer
 
 ## 3. `App.tsx` — rewire the entry point and register the delegate tool
 
-### Status (2026-05-09): blocked on upstream framework gap
-
-Browser testing of #156 surfaced that the coder's `requiresApproval: true` tools execute without ever calling `onApprovalRequired`. Root cause: `AgentProvider` constructs an internal runner whose registry is wrapped to enforce approvals, but the runner reference passed via `<AgentProvider runner={...}>` is the unwrapped one. `createAgentTool` captures that unwrapped reference at factory time, so sub-agent tool calls resolve through the unwrapped registry and bypass the approval wrapper.
-
-This is a framework-level mismatch between `createAgentTool` and `AgentProvider`'s wrapping topology. Filed upstream as **andreban/mast-ai#128**. Cobweb #156 is paused until a fixed mast-ai version ships.
-
-The wiring described below is correct against the SPEC and lands in PR #158 as a draft so the diff is preserved, but it is intentionally not merged until the upstream fix is available. Resume by bumping `@mast-ai/core` and `@mast-ai/react-ui` to the version that closes mast-ai#128, re-running the browser test plan in the issue, and marking #158 ready for review.
-
 ### Changes
 
 1. Import `PLANNING_AGENT` and `createDelegateToCoderTool`.

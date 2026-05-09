@@ -280,10 +280,6 @@ export function App() {
     return new AgentRunner(adapter, models.tools);
   }, [config]);
 
-  // Sub-agent tool calls do not yet trigger onApprovalRequired —
-  // AgentProvider's approval wrapping is private to its internal runner
-  // (andreban/mast-ai#128). The coder's writes execute unguarded until
-  // that upstream fix ships.
   useEffect(() => {
     if (!runner) return;
     if (models.tools.getTool('delegate_to_coder')) return;

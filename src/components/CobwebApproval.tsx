@@ -126,7 +126,6 @@ export function CobwebApproval({
           entry={entry}
           approve={approval.approve}
           reject={approval.reject}
-          respondWith={approval.respondWith}
         />
       );
   }
@@ -202,7 +201,7 @@ function DeviceEditApprovalLoader({
         <NoLongerAppliesNotice
           message="Cannot edit binary file."
           respondMessage="Cannot edit binary file."
-          onRespondWith={approval.respondWith}
+          onRespondWith={approval.reject}
         />
         <ApprovalActions
           approveDisabled
@@ -293,7 +292,7 @@ function OpenDeviceFileApprovalLoader({
         <NoLongerAppliesNotice
           message="File preview unavailable."
           respondMessage="File preview unavailable."
-          onRespondWith={approval.respondWith}
+          onRespondWith={approval.reject}
         />
         <ApprovalActions
           approveDisabled
@@ -395,13 +394,13 @@ function EditApprovalCard({
         <NoLongerAppliesNotice
           message={missingNotice}
           respondMessage={missingRespond}
-          onRespondWith={approval.respondWith}
+          onRespondWith={approval.reject}
         />
       ) : (
         <NoLongerAppliesNotice
           message={ambiguousNotice(find.count)}
           respondMessage={ambiguousRespond(find.count)}
-          onRespondWith={approval.respondWith}
+          onRespondWith={approval.reject}
         />
       )}
 
