@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect, vi } from 'vitest';
-import type { AgentConfig, AgentEvent, AgentRunner, ToolContext } from '@mast-ai/core';
+import type {
+  AgentConfig,
+  AgentEvent,
+  AgentRunner,
+  ApprovalHandler,
+  ToolContext,
+} from '@mast-ai/core';
 import { createDelegateToCoderTool } from './DelegateToCoderTool';
 import { CODING_AGENT } from '../config';
 
@@ -10,9 +16,13 @@ interface StubBuilderState {
   parentContext?: ToolContext;
   signal?: AbortSignal;
   runStreamInput?: string;
+  approvalHandler?: ApprovalHandler;
 }
 
-function makeStubRunner(events: AgentEvent[]): {
+function makeStubRunner(
+  events: AgentEvent[],
+  options: { runnerApprovalHandler?: ApprovalHandler } = {},
+): {
   runner: AgentRunner;
   state: StubBuilderState;
   runBuilder: ReturnType<typeof vi.fn>;
@@ -26,6 +36,10 @@ function makeStubRunner(events: AgentEvent[]): {
     },
     signal(signal: AbortSignal) {
       state.signal = signal;
+      return this;
+    },
+    withApprovalHandler(handler: ApprovalHandler) {
+      state.approvalHandler = handler;
       return this;
     },
     async *runStream(input: string): AsyncIterable<AgentEvent> {
@@ -43,7 +57,10 @@ function makeStubRunner(events: AgentEvent[]): {
     void agent;
     return builder;
   });
-  const runner = { runBuilder } as unknown as AgentRunner;
+  const runner = {
+    runBuilder,
+    approvalHandler: options.runnerApprovalHandler,
+  } as unknown as AgentRunner;
   return { runner, state, runBuilder };
 }
 
@@ -112,5 +129,37 @@ describe('createDelegateToCoderTool', () => {
     await tool.call({ task: 't' }, { signal: controller.signal });
 
     expect(state.signal).toBe(controller.signal);
+  });
+
+  it('forwards the parent ApprovalHandler from context to the child builder', async () => {
+    const events: AgentEvent[] = [{ type: 'done', output: '', history: [] }];
+    const { runner, state } = makeStubRunner(events);
+    const tool = createDelegateToCoderTool(runner);
+    const approvalHandler: ApprovalHandler = {
+      requestApproval: vi.fn(),
+    };
+
+    await tool.call({ task: 't' }, { approvalHandler });
+
+    expect(state.approvalHandler).toBe(approvalHandler);
+  });
+
+  it('does not override the runner default approvalHandler when one is set', async () => {
+    const events: AgentEvent[] = [{ type: 'done', output: '', history: [] }];
+    const runnerApprovalHandler: ApprovalHandler = { requestApproval: vi.fn() };
+    const { runner, state } = makeStubRunner(events, {
+      runnerApprovalHandler,
+    });
+    const tool = createDelegateToCoderTool(runner);
+    const parentApprovalHandler: ApprovalHandler = {
+      requestApproval: vi.fn(),
+    };
+
+    await tool.call(
+      { task: 't' },
+      { approvalHandler: parentApprovalHandler },
+    );
+
+    expect(state.approvalHandler).toBeUndefined();
   });
 });
