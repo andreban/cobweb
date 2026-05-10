@@ -182,10 +182,22 @@ Per-board persistent memory. The agent reads and updates a markdown blob keyed b
 ### Bindings extension — `src/agent/wireTools.ts`
 
 ```ts
+export type BoardIdentity =
+  | { status: 'disconnected' }
+  | { status: 'probing' }
+  | { status: 'ready'; machineName: string };
+
 export interface ToolBindings {
   // ... existing fields
-  /** os.uname().machine value probed at connect, or null when disconnected. */
-  machineName: string | null;
+  /**
+   * State of the connect-time `os.uname().machine` probe. The notes tools
+   * branch on `status` so that "no board connected" (a legitimate workflow
+   * — editing local files without a device) and "board connected, still
+   * identifying it" (a transient state in the first ~hundred ms after
+   * connect) produce distinct messages, rather than collapsing the latter
+   * into a misleading "Board not connected".
+   */
+  boardIdentity: BoardIdentity;
 }
 ```
 
@@ -195,27 +207,33 @@ export interface ToolBindings {
 export function useMachineName(args: {
   connectionState: ConnectionState;
   runCode: (code: string) => Promise<RunResult>;
-}): string | null {
-  const [machineName, setMachineName] = useState<string | null>(null);
+}): BoardIdentity {
+  const [identity, setIdentity] = useState<BoardIdentity>({ status: 'disconnected' });
   useEffect(() => {
     if (args.connectionState !== 'connected') {
-      setMachineName(null);
+      setIdentity({ status: 'disconnected' });
       return;
     }
+    setIdentity({ status: 'probing' });
     let cancelled = false;
     (async () => {
       try {
         const { stdout } = await args.runCode("import os; print(os.uname().machine)");
         if (cancelled) return;
         const value = stdout.trim();
-        setMachineName(value || null);
+        if (value) setIdentity({ status: 'ready', machineName: value });
+        // Empty probe output keeps status === 'probing' rather than
+        // misrepresenting it as ready-with-empty-name. The agent retries
+        // on the next turn (cheap; same as a transient REPL hiccup).
       } catch {
-        // Probe failure is non-fatal; notes tools surface "Board not connected".
+        // Probe failure leaves status === 'probing'; the agent's next
+        // notes-touching turn surfaces the "still identifying" message
+        // rather than silently degrading to disconnected-shaped errors.
       }
     })();
     return () => { cancelled = true; };
   }, [args.connectionState, args.runCode]);
-  return machineName;
+  return identity;
 }
 ```
 
@@ -238,9 +256,14 @@ export function useMachineName(args: {
 
 ```ts
 async call(_args, _ctx): Promise<string> {
-  const { machineName } = this.getBindings();
-  if (!machineName) return 'Board not connected. Notes are only available when a device is connected.';
-  return localStorage.getItem(`cobweb:board-notes:${machineName}`) ?? '';
+  const { boardIdentity } = this.getBindings();
+  if (boardIdentity.status === 'disconnected') {
+    return 'No board connected. Notes are scoped per-board; connect a device to read its notes.';
+  }
+  if (boardIdentity.status === 'probing') {
+    return 'Identifying the connected board… try again in a moment.';
+  }
+  return localStorage.getItem(`cobweb:board-notes:${boardIdentity.machineName}`) ?? '';
 }
 ```
 
@@ -264,11 +287,14 @@ async call(_args, _ctx): Promise<string> {
 
 ```ts
 async call({ content }, _ctx): Promise<string> {
-  const { machineName } = this.getBindings();
-  if (!machineName) return 'Board not connected.';
-  if (content.length > 64 * 1024) return `Content exceeds 64 KB note cap (${content.length} bytes). Trim before saving.`;
-  localStorage.setItem(`cobweb:board-notes:${machineName}`, content);
-  return `Saved ${content.length} bytes to notes for "${machineName}".`;
+  const { boardIdentity } = this.getBindings();
+  if (boardIdentity.status === 'disconnected') return 'No board connected. Notes are scoped per-board.';
+  if (boardIdentity.status === 'probing') return 'Identifying the connected board… try again in a moment.';
+  if (content.length > 64 * 1024) {
+    return `Content exceeds 64 KB note cap (${content.length} bytes). Trim before saving.`;
+  }
+  localStorage.setItem(`cobweb:board-notes:${boardIdentity.machineName}`, content);
+  return `Saved ${content.length} bytes to notes for "${boardIdentity.machineName}".`;
 }
 ```
 
@@ -295,16 +321,18 @@ async call({ content }, _ctx): Promise<string> {
 
 ```ts
 async call({ old_string, new_string }, _ctx): Promise<string> {
-  const { machineName } = this.getBindings();
-  if (!machineName) return 'Board not connected.';
-  const current = localStorage.getItem(`cobweb:board-notes:${machineName}`) ?? '';
+  const { boardIdentity } = this.getBindings();
+  if (boardIdentity.status === 'disconnected') return 'No board connected. Notes are scoped per-board.';
+  if (boardIdentity.status === 'probing') return 'Identifying the connected board… try again in a moment.';
+  const key = `cobweb:board-notes:${boardIdentity.machineName}`;
+  const current = localStorage.getItem(key) ?? '';
   const occurrences = countOccurrences(current, old_string);
   if (occurrences === 0) return `old_string not found in current notes.`;
   if (occurrences > 1) return `old_string appears ${occurrences} times in current notes. Add surrounding context to make it unique.`;
   const updated = current.replace(old_string, new_string);
   if (updated.length > 64 * 1024) return `Updated content exceeds 64 KB note cap. Trim before saving.`;
-  localStorage.setItem(`cobweb:board-notes:${machineName}`, updated);
-  return `Notes updated for "${machineName}".`;
+  localStorage.setItem(key, updated);
+  return `Notes updated for "${boardIdentity.machineName}".`;
 }
 ```
 
@@ -314,11 +342,12 @@ The uniqueness contract mirrors `edit_editor` / `edit_device_file`. Same family 
 
 Phase 1 uses the default approval card — the user sees the tool name, the args (the full content for `write_board_notes`, the `old_string` / `new_string` pair for `edit_board_notes`), and approves or rejects. Custom diff rendering inside `makeCobwebApproval.tsx` is a polish item; defer until the basic flow is observed.
 
-### Tests — three test files
+### Tests — three tool files plus the hook
 
-- `BoardNotesReadTool.test.ts` — disconnected → "Board not connected"; connected with no entry → ""; connected with entry → returns it.
-- `BoardNotesWriteTool.test.ts` — disconnected → "Board not connected"; small content → written to localStorage, returns success message; oversize content → returns cap error, localStorage unchanged.
-- `BoardNotesEditTool.test.ts` — uniqueness violations (zero / multiple occurrences) → corresponding error strings; valid edit → localStorage updated; oversize result → cap error.
+- `BoardNotesReadTool.test.ts` — `disconnected` → "No board connected" message; `probing` → "Identifying…" message; `ready` with no entry → ""; `ready` with entry → returns it.
+- `BoardNotesWriteTool.test.ts` — `disconnected` and `probing` → respective messages, localStorage unchanged; `ready` with small content → written, success message returned; `ready` with oversize content → cap error, localStorage unchanged.
+- `BoardNotesEditTool.test.ts` — `disconnected` and `probing` short-circuit before localStorage access; uniqueness violations (zero / multiple occurrences) → corresponding error strings; valid edit → localStorage updated; oversize result → cap error.
+- `useMachineName.test.ts` — `renderHook` with a fake `runCode`. Initial state: `disconnected`. On `connectionState` → `'connected'`: status flips to `probing`, then `ready` with the trimmed machine string when the probe resolves. Empty probe output keeps status `probing`. `runCode` rejection keeps status `probing`. On `connectionState` → `'disconnected'`: status flips to `disconnected`.
 
 Tests stub `localStorage` on `globalThis` (or use `happy-dom`'s built-in).
 
@@ -335,9 +364,9 @@ Tests stub `localStorage` on `globalThis` (or use `happy-dom`'s built-in).
 - `src/hooks/useMachineName.test.ts`
 
 **Modify:**
-- `src/agent/wireTools.ts` — extend `ToolBindings` with `machineName: string | null`; register the three new tools.
+- `src/agent/wireTools.ts` — export `BoardIdentity` discriminated union; extend `ToolBindings` with `boardIdentity: BoardIdentity`; register the three new tools.
 - `src/agent/config.ts` — append `'read_board_notes'`, `'write_board_notes'`, `'edit_board_notes'` to `CODING_AGENT.tools`. Add a sentence to coder instructions: *"At the start of work on a connected board, call `read_board_notes` to recall context from previous sessions. When you learn something durable about the board (vendor modules, useful docs URLs, pin assignments, gotchas), update the notes via `edit_board_notes` (or `write_board_notes` for the first entry) so future sessions benefit."*
-- `src/App.tsx` — invoke `useMachineName`; pass the value into `wireTools` bindings.
+- `src/App.tsx` — invoke `useMachineName`; pass the returned `BoardIdentity` into `wireTools` bindings.
 
 ---
 
@@ -355,9 +384,10 @@ These are append-only string additions to the existing instructions literal. No 
 
 ## 5. Concurrency considerations
 
-No instruction mutation. No per-message hooks awaiting fetches before dispatch. The only shared state is the `machineName` binding, set by `useMachineName` on connect.
+No instruction mutation. No per-message hooks awaiting fetches before dispatch. The only shared state is the `boardIdentity` binding, updated by `useMachineName` on connect transitions.
 
-- **Mid-turn disconnect.** Tool calls read `machineName` at call time via the bindings closure. A disconnect mid-tool returns "Board not connected" on subsequent calls; in-flight `runCode` rejects via the existing `ReplDisconnectedError` path.
+- **Mid-turn disconnect.** Tool calls read `boardIdentity` at call time via the bindings closure. A disconnect mid-tool surfaces the disconnected message on subsequent calls; in-flight `runCode` rejects via the existing `ReplDisconnectedError` path.
+- **Probing-state turn.** If the user sends a notes-touching message in the brief window between connect and probe completion, the tools return the "Identifying the connected board…" message. The agent's natural response is to retry on the next turn (cheap), or to proceed with non-notes-touching work in the meantime.
 - **Concurrent tool calls.** `AgentRunner` may fire multiple tool calls per turn via `Promise.all`. `localStorage` is synchronous — concurrent `write_board_notes` + `edit_board_notes` in the same turn would race, but the model is unlikely to emit both, and the second wins (last-write semantics). Document but don't implement serialisation in phase 1.
 
 ---
@@ -383,7 +413,8 @@ For each tool issue, browser verification follows the same shape:
 2. Refresh the page, start a new conversation, ask "what do you know about this board?" → coder calls `read_board_notes`, the saved note is in the result.
 3. Disconnect, connect a different board → `read_board_notes` returns "" (no leakage between boards).
 4. Ask the agent to update an existing note via `edit_board_notes` → approval card fires showing the old/new strings, approve, tool returns success.
-5. With the board disconnected → all three tools return "Board not connected".
+5. With no board connected (legitimate workflow — editing a local file) → all three tools return "No board connected" rather than blocking other work.
+6. Sending a notes-touching message in the first ~hundred ms after connect → returns "Identifying the connected board…" rather than misreporting as disconnected.
 
 **B (`fetch_url`)**
 1. Paste `https://github.com/pimoroni/presto` in chat → coder calls `fetch_url`, README content is returned.
