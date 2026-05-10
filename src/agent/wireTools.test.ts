@@ -30,6 +30,7 @@ describe('wireTools', () => {
       'edit_board_notes',
       'edit_device_file',
       'edit_editor',
+      'fetch_url',
       'get_board_info',
       'list_device_files',
       'make_device_dir',
@@ -52,7 +53,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(19);
+    expect(tools.getTools()).toHaveLength(20);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {
