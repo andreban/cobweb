@@ -145,8 +145,8 @@
     --mast-tool-error-fg: var(--destructive-foreground, var(--primary-foreground));
     --mast-tool-cancelled-bg: var(--muted);
     --mast-tool-cancelled-fg: var(--muted-foreground);
-    --mast-user-bubble: var(--secondary);
-    --mast-user-fg: var(--secondary-foreground);
+    --mast-user-bubble: var(--primary);
+    --mast-user-fg: var(--primary-foreground);
     --mast-mention-chip-bg: var(--secondary);
     --mast-mention-chip-fg: var(--secondary-foreground);
 }
@@ -183,6 +183,19 @@
 
 .mast-chat-input-textarea {
     min-height: calc(4 * 1.5em);
+}
+
+/* Assistant (planner) messages — give the text its own padded block so it
+   reads as a distinct turn rather than running into surrounding chrome. */
+[data-mast-root] [data-mast-assistant-message] {
+    padding: 0.5rem 0.75rem;
+    background: var(--muted);
+    border-radius: var(--radius);
+}
+
+/* User bubble — bump padding slightly so it matches the assistant block. */
+[data-mast-root] .mast-user-message-bubble {
+    padding: 0.5rem 0.75rem;
 }
 
 /* Sub-agent conversation block — distinct rail + tinted background so the
