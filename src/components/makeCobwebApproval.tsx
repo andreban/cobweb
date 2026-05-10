@@ -8,6 +8,7 @@ export function makeCobwebApproval(
   getEditorContent: () => string,
   revealEditorRange: (from: number, to: number) => void,
   readDeviceFile: (path: string) => Promise<string | null>,
+  getBoardNotes: () => string | null,
 ): RenderApproval {
   return (entry, approval) => (
     <CobwebApproval
@@ -16,6 +17,7 @@ export function makeCobwebApproval(
       getEditorContent={getEditorContent}
       revealEditorRange={revealEditorRange}
       readDeviceFile={readDeviceFile}
+      getBoardNotes={getBoardNotes}
     />
   );
 }

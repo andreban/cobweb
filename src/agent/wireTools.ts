@@ -20,6 +20,14 @@ import { StopProgramTool } from './tools/StopProgramTool';
 import { GetBoardInfoTool } from './tools/GetBoardInfoTool';
 import { OpenDeviceFileInEditorTool } from './tools/OpenDeviceFileInEditorTool';
 import { SaveEditorToDeviceTool } from './tools/SaveEditorToDeviceTool';
+import { BoardNotesReadTool } from './tools/BoardNotesReadTool';
+import { BoardNotesWriteTool } from './tools/BoardNotesWriteTool';
+import { BoardNotesEditTool } from './tools/BoardNotesEditTool';
+
+export type BoardIdentity =
+  | { status: 'disconnected' }
+  | { status: 'probing' }
+  | { status: 'ready'; machineName: string };
 
 export interface ToolBindings {
   getEditorContent(): string;
@@ -34,6 +42,15 @@ export interface ToolBindings {
   onData(handler: (data: Uint8Array) => void): () => void;
   deviceFs: DeviceFs | null;
   sendInterrupt(): void;
+  /**
+   * State of the connect-time `os.uname().machine` probe. The notes tools
+   * branch on `status` so that "no board connected" (a legitimate workflow
+   * — editing local files without a device) and "board connected, still
+   * identifying it" (a transient state in the first ~hundred ms after
+   * connect) produce distinct messages, rather than collapsing the latter
+   * into a misleading "Board not connected".
+   */
+  boardIdentity: BoardIdentity;
 }
 
 const REGISTERED = new WeakSet<ToolRegistry>();
@@ -66,4 +83,7 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new GetBoardInfoTool(get));
   tools.register(new OpenDeviceFileInEditorTool(get));
   tools.register(new SaveEditorToDeviceTool(get));
+  tools.register(new BoardNotesReadTool(get));
+  tools.register(new BoardNotesWriteTool(get));
+  tools.register(new BoardNotesEditTool(get));
 }

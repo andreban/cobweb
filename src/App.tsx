@@ -19,12 +19,14 @@ import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor, type EditorOrigin } from './hooks/useEditor';
 import { useDeviceFs } from './hooks/useDeviceFs';
 import { useLayout } from './hooks/useLayout';
+import { useMachineName } from './hooks/useMachineName';
 import { useProviderConfig } from './hooks/useProviderConfig';
 import { useTheme } from './hooks/useTheme';
 import { createModels } from './models';
 import { createAdapter } from './providers/factory';
 import { PLANNING_AGENT } from './agent/config';
 import { wireTools } from './agent/wireTools';
+import { boardNotesKey } from './agent/tools/boardNotesStorage';
 import { createDelegateToCoderTool } from './agent/tools/DelegateToCoderTool';
 import { DeviceFs } from './DeviceFs';
 import { saveEditor } from './lib/saveEditor';
@@ -47,6 +49,8 @@ export function App() {
     setOriginAndContent,
     isModified,
   } = useEditor(theme);
+
+  const boardIdentity = useMachineName({ connectionState, runCode });
 
   const deviceFsHook = useDeviceFs({ connectionState, sendRaw });
   const {
@@ -272,6 +276,7 @@ export function App() {
     onData,
     deviceFs,
     sendInterrupt: () => send('\x03'),
+    boardIdentity,
   });
 
   const runner = useMemo(() => {
@@ -302,9 +307,20 @@ export function App() {
     [deviceReadBytes],
   );
 
+  const getBoardNotes = useCallback((): string | null => {
+    if (boardIdentity.status !== 'ready') return null;
+    return localStorage.getItem(boardNotesKey(boardIdentity.machineName)) ?? '';
+  }, [boardIdentity]);
+
   const renderApproval = useMemo(
-    () => makeCobwebApproval(getContent, revealRange, readDeviceFileForApproval),
-    [getContent, revealRange, readDeviceFileForApproval],
+    () =>
+      makeCobwebApproval(
+        getContent,
+        revealRange,
+        readDeviceFileForApproval,
+        getBoardNotes,
+      ),
+    [getContent, revealRange, readDeviceFileForApproval, getBoardNotes],
   );
 
   const savedConversation = useMemo(
