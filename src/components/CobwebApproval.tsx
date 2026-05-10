@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { diffWords, type ChangeObject } from 'diff';
+import { diffLines, diffWords, type ChangeObject } from 'diff';
 import {
   InlineApproval,
   type PendingApproval,
@@ -19,6 +19,7 @@ interface CobwebApprovalProps extends ApprovalSlotProps {
   getEditorContent: () => string;
   revealEditorRange: (from: number, to: number) => void;
   readDeviceFile: (path: string) => Promise<string | null>;
+  getBoardNotes: () => string | null;
 }
 
 export function CobwebApproval({
@@ -27,6 +28,7 @@ export function CobwebApproval({
   getEditorContent,
   revealEditorRange,
   readDeviceFile,
+  getBoardNotes,
 }: CobwebApprovalProps): ReactNode {
   switch (entry.name) {
     case 'edit_editor':
@@ -48,6 +50,50 @@ export function CobwebApproval({
           readDeviceFile={readDeviceFile}
         />
       );
+    case 'edit_board_notes': {
+      const current = getBoardNotes();
+      if (current === null) {
+        return (
+          <NoBoardApprovalCard
+            entry={entry}
+            approval={approval}
+            header={<>Edit board notes</>}
+          />
+        );
+      }
+      return (
+        <EditApprovalCard
+          entry={entry}
+          approval={approval}
+          surface="notes"
+          headerLabel={<>Edit board notes</>}
+          source={current}
+        />
+      );
+    }
+    case 'write_board_notes': {
+      const wbnArgs = entry.args as { content?: unknown } | undefined;
+      const wbnContent =
+        typeof wbnArgs?.content === 'string' ? wbnArgs.content : '';
+      const wbnCurrent = getBoardNotes();
+      if (wbnCurrent === null) {
+        return (
+          <NoBoardApprovalCard
+            entry={entry}
+            approval={approval}
+            header={<>Save board notes</>}
+          />
+        );
+      }
+      return (
+        <NotesWriteApprovalCard
+          entry={entry}
+          approval={approval}
+          current={wbnCurrent}
+          proposed={wbnContent}
+        />
+      );
+    }
     case 'write_editor': {
       const weArgs = entry.args as { code?: unknown } | undefined;
       const code = typeof weArgs?.code === 'string' ? weArgs.code : '';
@@ -317,7 +363,7 @@ function OpenDeviceFileApprovalLoader({
 
 interface EditApprovalCardProps extends ApprovalSlotProps {
   source: string;
-  surface: 'editor' | 'file';
+  surface: 'editor' | 'file' | 'notes';
   headerLabel: ReactNode;
   revealRange?: (from: number, to: number) => void;
 }
@@ -352,10 +398,11 @@ function EditApprovalCard({
     revealRange(find.index, find.index + oldString.length);
   }, [find, oldString.length, revealRange]);
 
-  const surfaceWord = surface === 'editor' ? 'editor' : 'file';
-  const missingNotice = `old_string was not found in the current ${surfaceWord} — the ${
-    surface === 'editor' ? 'buffer' : 'file'
-  } may have changed since the agent proposed this edit.`;
+  const surfaceWord =
+    surface === 'editor' ? 'editor' : surface === 'notes' ? 'notes' : 'file';
+  const surfaceContainer =
+    surface === 'editor' ? 'buffer' : surface === 'notes' ? 'notes' : 'file';
+  const missingNotice = `old_string was not found in the current ${surfaceWord} — the ${surfaceContainer} may have changed since the agent proposed this edit.`;
   const missingRespond = `old_string not found in ${surfaceWord}.`;
   const ambiguousNotice = (count: number) =>
     `old_string is now ambiguous — it appears ${count} times in the current ${surfaceWord}.`;
@@ -406,6 +453,62 @@ function EditApprovalCard({
 
       <ApprovalActions
         approveDisabled={find.kind !== 'unique'}
+        onApprove={approval.approve}
+        onReject={approval.reject}
+      />
+    </div>
+  );
+}
+
+// ----- NotesWriteApprovalCard ------------------------------------------------
+
+interface NotesWriteApprovalCardProps extends ApprovalSlotProps {
+  current: string;
+  proposed: string;
+}
+
+function NotesWriteApprovalCard({
+  entry,
+  approval,
+  current,
+  proposed,
+}: NotesWriteApprovalCardProps): ReactNode {
+  return (
+    <div className="cobweb-approval-card" data-tool-name={entry.name}>
+      <div className="cobweb-approval-header">
+        <span className="cobweb-approval-title">Save board notes</span>
+        <span className="cobweb-approval-status">requires approval</span>
+      </div>
+      <UnifiedDiffBlock current={current} proposed={proposed} />
+      <ApprovalActions onApprove={approval.approve} onReject={approval.reject} />
+    </div>
+  );
+}
+
+// ----- NoBoardApprovalCard --------------------------------------------------
+
+interface NoBoardApprovalCardProps extends ApprovalSlotProps {
+  header: ReactNode;
+}
+
+function NoBoardApprovalCard({
+  entry,
+  approval,
+  header,
+}: NoBoardApprovalCardProps): ReactNode {
+  return (
+    <div className="cobweb-approval-card" data-tool-name={entry.name}>
+      <div className="cobweb-approval-header">
+        <span className="cobweb-approval-title">{header}</span>
+        <span className="cobweb-approval-status">requires approval</span>
+      </div>
+      <NoLongerAppliesNotice
+        message="No board connected — cannot preview or save notes."
+        respondMessage="No board connected. Notes are scoped per-board."
+        onRespondWith={approval.reject}
+      />
+      <ApprovalActions
+        approveDisabled
         onApprove={approval.approve}
         onReject={approval.reject}
       />
@@ -509,6 +612,61 @@ function DiffBlock({ source, index, oldString, newString }: DiffBlockProps): Rea
       ))}
     </pre>
   );
+}
+
+// ----- UnifiedDiffBlock ------------------------------------------------------
+
+interface UnifiedDiffBlockProps {
+  current: string;
+  proposed: string;
+}
+
+/**
+ * Whole-content diff for tools that replace an entire blob (e.g.
+ * `write_board_notes`). Uses `diffLines` so the user sees what's changing
+ * without having to read the full new content end-to-end.
+ */
+function UnifiedDiffBlock({ current, proposed }: UnifiedDiffBlockProps): ReactNode {
+  const changes = useMemo(() => diffLines(current, proposed), [current, proposed]);
+
+  // Track the running line numbers in the *current* (left) and *proposed*
+  // (right) versions so each row can show its source-side line number.
+  // Lines added by the change have no left-side number; removed lines have
+  // no right-side number — we render the left number for removed/context
+  // and leave it blank for added rows, matching `DiffBlock`.
+  let leftLine = 1;
+  const rows: ReactNode[] = [];
+  let key = 0;
+  for (const change of changes) {
+    const lines = change.value.split('\n');
+    // `diffLines` chunks end with the trailing newline included, so the
+    // split yields a final empty string we should drop to avoid a phantom
+    // blank row per chunk.
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    for (const line of lines) {
+      if (change.added) {
+        rows.push(
+          <DiffLine key={`u-${key++}`} kind="added" lineNumber={null}>
+            {line}
+          </DiffLine>,
+        );
+      } else if (change.removed) {
+        rows.push(
+          <DiffLine key={`u-${key++}`} kind="removed" lineNumber={leftLine++}>
+            {line}
+          </DiffLine>,
+        );
+      } else {
+        rows.push(
+          <DiffLine key={`u-${key++}`} kind="context" lineNumber={leftLine++}>
+            {line}
+          </DiffLine>,
+        );
+      }
+    }
+  }
+
+  return <pre className="cobweb-diff">{rows}</pre>;
 }
 
 function renderHalf(changes: ChangeObject<string>[], side: 'removed' | 'added'): ReactNode[] {

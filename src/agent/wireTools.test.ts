@@ -15,6 +15,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
     onData: () => () => {},
     deviceFs: null,
     sendInterrupt: () => {},
+    boardIdentity: { status: 'disconnected' },
     ...overrides,
   };
 }
@@ -26,12 +27,14 @@ describe('wireTools', () => {
     const names = tools.getTools().map((t) => t.name).sort();
     expect(names).toEqual([
       'delete_device_file',
+      'edit_board_notes',
       'edit_device_file',
       'edit_editor',
       'get_board_info',
       'list_device_files',
       'make_device_dir',
       'open_device_file_in_editor',
+      'read_board_notes',
       'read_device_file',
       'read_editor',
       'read_repl_history',
@@ -39,6 +42,7 @@ describe('wireTools', () => {
       'run_snippet',
       'save_editor_to_device',
       'stop_program',
+      'write_board_notes',
       'write_device_file',
       'write_editor',
     ]);
@@ -48,7 +52,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(16);
+    expect(tools.getTools()).toHaveLength(19);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {

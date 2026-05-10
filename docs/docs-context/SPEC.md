@@ -2,11 +2,11 @@
 
 ## Overview
 
-The PRD identifies three primitives for phase 1: per-board persistent notes, generic URL fetching, and module-surface introspection. Each is a small additive tool registered on the existing `models.tools` registry, allowlisted to `CODING_AGENT` only.
+The PRD identifies three primitives for phase 1: per-board persistent notes, generic URL fetching, and module-surface introspection. Each is a small additive tool registered on the existing `models.tools` registry. The board-notes tools are allowlisted to both `PLANNING_AGENT` and `CODING_AGENT` so the planner can recall and update notes without delegating; `fetch_url` and `list_installed_modules` stay coder-only.
 
 The framework provides every primitive needed:
 
-- Tools register on `models.tools` via `wireTools`. The coder's allowlist in `CODING_AGENT.tools` controls visibility.
+- Tools register on `models.tools` via `wireTools`. Per-agent allowlists in `PLANNING_AGENT.tools` / `CODING_AGENT.tools` control visibility.
 - Approval-gated writes route through the existing `INLINE_APPROVAL` flow (`src/components/makeCobwebApproval.tsx`), the same path used by `edit_editor` / `write_device_file`.
 - `localStorage` and the Cache API are platform built-ins — no new dependencies.
 
@@ -177,7 +177,7 @@ Per-board persistent memory. The agent reads and updates a markdown blob keyed b
 
 - Key: `cobweb:board-notes:${machineName}`.
 - Value: a plain markdown string. No frontmatter, no JSON wrapper — keep it editable both by the agent and (later) by a settings-panel UI without parsing overhead.
-- Cap: 64 KB per board. Writes that would exceed the cap return an error.
+- No size cap in phase 1. Notes share the localStorage origin quota (~5 MB) with everything else; revisit if usage shows the agent over-recording.
 
 ### Bindings extension — `src/agent/wireTools.ts`
 
@@ -290,9 +290,6 @@ async call({ content }, _ctx): Promise<string> {
   const { boardIdentity } = this.getBindings();
   if (boardIdentity.status === 'disconnected') return 'No board connected. Notes are scoped per-board.';
   if (boardIdentity.status === 'probing') return 'Identifying the connected board… try again in a moment.';
-  if (content.length > 64 * 1024) {
-    return `Content exceeds 64 KB note cap (${content.length} bytes). Trim before saving.`;
-  }
   localStorage.setItem(`cobweb:board-notes:${boardIdentity.machineName}`, content);
   return `Saved ${content.length} bytes to notes for "${boardIdentity.machineName}".`;
 }
@@ -330,7 +327,6 @@ async call({ old_string, new_string }, _ctx): Promise<string> {
   if (occurrences === 0) return `old_string not found in current notes.`;
   if (occurrences > 1) return `old_string appears ${occurrences} times in current notes. Add surrounding context to make it unique.`;
   const updated = current.replace(old_string, new_string);
-  if (updated.length > 64 * 1024) return `Updated content exceeds 64 KB note cap. Trim before saving.`;
   localStorage.setItem(key, updated);
   return `Notes updated for "${boardIdentity.machineName}".`;
 }
@@ -340,13 +336,18 @@ The uniqueness contract mirrors `edit_editor` / `edit_device_file`. Same family 
 
 ### Approval rendering
 
-Phase 1 uses the default approval card — the user sees the tool name, the args (the full content for `write_board_notes`, the `old_string` / `new_string` pair for `edit_board_notes`), and approves or rejects. Custom diff rendering inside `makeCobwebApproval.tsx` is a polish item; defer until the basic flow is observed.
+Both write tools render diffs against the current notes:
+
+- `edit_board_notes` reuses `EditApprovalCard` with `surface: 'notes'` (the existing focused-diff card with notes-flavoured copy) so the user sees the same context-window view that `edit_editor` and `edit_device_file` produce.
+- `write_board_notes` renders a new `NotesWriteApprovalCard` that prints a unified `diffLines` view of *current → proposed*. When notes are empty (first write) the entire proposed body shows as additions; when notes already exist, the user sees what's changing rather than re-reading the full new blob.
+
+Both cards need access to the current notes content. `App.tsx` exposes a synchronous `getBoardNotes(): string | null` to `makeCobwebApproval`: `null` when `boardIdentity.status !== 'ready'`, otherwise the localStorage entry (or `''` if absent). When `null`, the approval card renders a "no board connected" notice with approve disabled, mirroring the binary-file path on `DeviceEditApprovalLoader`.
 
 ### Tests — three tool files plus the hook
 
 - `BoardNotesReadTool.test.ts` — `disconnected` → "No board connected" message; `probing` → "Identifying…" message; `ready` with no entry → ""; `ready` with entry → returns it.
-- `BoardNotesWriteTool.test.ts` — `disconnected` and `probing` → respective messages, localStorage unchanged; `ready` with small content → written, success message returned; `ready` with oversize content → cap error, localStorage unchanged.
-- `BoardNotesEditTool.test.ts` — `disconnected` and `probing` short-circuit before localStorage access; uniqueness violations (zero / multiple occurrences) → corresponding error strings; valid edit → localStorage updated; oversize result → cap error.
+- `BoardNotesWriteTool.test.ts` — `disconnected` and `probing` → respective messages, localStorage unchanged; `ready` → content written, success message returned.
+- `BoardNotesEditTool.test.ts` — `disconnected` and `probing` short-circuit before localStorage access; uniqueness violations (zero / multiple occurrences) → corresponding error strings; valid edit → localStorage updated.
 - `useMachineName.test.ts` — `renderHook` with a fake `runCode`. Initial state: `disconnected`. On `connectionState` → `'connected'`: status flips to `probing`, then `ready` with the trimmed machine string when the probe resolves. Empty probe output keeps status `probing`. `runCode` rejection keeps status `probing`. On `connectionState` → `'disconnected'`: status flips to `disconnected`.
 
 Tests stub `localStorage` on `globalThis` (or use `happy-dom`'s built-in).
@@ -365,20 +366,21 @@ Tests stub `localStorage` on `globalThis` (or use `happy-dom`'s built-in).
 
 **Modify:**
 - `src/agent/wireTools.ts` — export `BoardIdentity` discriminated union; extend `ToolBindings` with `boardIdentity: BoardIdentity`; register the three new tools.
-- `src/agent/config.ts` — append `'read_board_notes'`, `'write_board_notes'`, `'edit_board_notes'` to `CODING_AGENT.tools`. Add a sentence to coder instructions: *"At the start of work on a connected board, call `read_board_notes` to recall context from previous sessions. When you learn something durable about the board (vendor modules, useful docs URLs, pin assignments, gotchas), update the notes via `edit_board_notes` (or `write_board_notes` for the first entry) so future sessions benefit."*
-- `src/App.tsx` — invoke `useMachineName`; pass the returned `BoardIdentity` into `wireTools` bindings.
+- `src/components/makeCobwebApproval.tsx` and `src/components/CobwebApproval.tsx` — accept `getBoardNotes`, render `edit_board_notes` via the focused-diff card and `write_board_notes` via the new unified-diff card.
+- `src/agent/config.ts` — append `'read_board_notes'`, `'write_board_notes'`, `'edit_board_notes'` to both `PLANNING_AGENT.tools` and `CODING_AGENT.tools`. Add a paragraph to coder instructions establishing *when* to call the notes tools, *what* belongs in them, and *which concrete events trigger an update*. Both negative carve-outs are load-bearing: without the "what" list the agent treats anything "useful for next time" (filesystem listings, current `main.py` body) as note-worthy; without explicit triggers, "when you learn something durable" leaves the model to judge, and it either over-records or skips facts it just discovered. The paragraph: *"At the start of work on a connected board, call `read_board_notes` to recall context from previous sessions. Board notes are about the BOARD HARDWARE — vendor modules, pin assignments, hardware quirks, useful docs URLs. They are NOT about the current application: do not record filesystem listings, current main.py contents, project-specific code, or anything that would be wrong after a different program is flashed. Update the notes via `edit_board_notes` (or `write_board_notes` for the first entry) when one of these specific triggers fires: (a) `list_installed_modules` reveals a vendor or community module not already in the notes; (b) the user states a hardware fact (\"GP25 is the onboard LED\", \"this board has 264 KB SRAM\", \"I2C is on pins 4 and 5\"); (c) you fix a bug whose root cause was a board-specific quirk worth remembering; (d) you consult a docs URL you would want to find again from a future session. Update at the END of a successful turn, not mid-task — once you know the fact is correct and useful. Do not update notes just because something feels generally informative; if no trigger fires, do not write."*
+- `src/App.tsx` — invoke `useMachineName`; pass the returned `BoardIdentity` into `wireTools` bindings; build a `getBoardNotes` callback (reads localStorage when `boardIdentity.status === 'ready'`, else `null`) and pass it into `makeCobwebApproval`.
 
 ---
 
 ## 4. System-prompt budget
 
-Three sentences total appended to `CODING_AGENT.instructions`:
+Three additions total appended to `CODING_AGENT.instructions`:
 
-1. *"At the start of work on a connected board, call `read_board_notes` to recall context from previous sessions. When you learn something durable about the board (vendor modules, useful docs URLs, pin assignments, gotchas), update the notes via `edit_board_notes` (or `write_board_notes` for the first entry) so future sessions benefit."*
+1. *"At the start of work on a connected board, call `read_board_notes` to recall context from previous sessions. Board notes are about the BOARD HARDWARE — vendor modules, pin assignments, hardware quirks, useful docs URLs. They are NOT about the current application: do not record filesystem listings, current main.py contents, project-specific code, or anything that would be wrong after a different program is flashed. Update the notes via `edit_board_notes` (or `write_board_notes` for the first entry) when one of these specific triggers fires: (a) `list_installed_modules` reveals a vendor or community module not already in the notes; (b) the user states a hardware fact (\"GP25 is the onboard LED\", \"this board has 264 KB SRAM\", \"I2C is on pins 4 and 5\"); (c) you fix a bug whose root cause was a board-specific quirk worth remembering; (d) you consult a docs URL you would want to find again from a future session. Update at the END of a successful turn, not mid-task — once you know the fact is correct and useful. Do not update notes just because something feels generally informative; if no trigger fires, do not write."*
 2. *"When you are unsure whether a vendor or community module is available on the connected board, call `list_installed_modules` before writing imports."*
 3. *"When the user provides a docs URL, when board notes record one, or when you need a known docs page (e.g. upstream MicroPython library RST at `https://raw.githubusercontent.com/micropython/micropython/master/docs/library/<module>.rst`), call `fetch_url`."*
 
-These are append-only string additions to the existing instructions literal. No mutation, no per-turn assembly. The tool descriptions themselves carry the bulk of the "when to call" guidance; the system-prompt sentences exist only to nudge tool *order* (read notes first, fetch known URLs before searching, probe modules before importing unknowns).
+These are append-only string additions to the existing instructions literal. No mutation, no per-turn assembly. The tool descriptions themselves carry the bulk of the "when to call" guidance; the system-prompt sentences exist only to nudge tool *order* (read notes first, fetch known URLs before searching, probe modules before importing unknowns) and — for board notes specifically — *what* to record vs. leave to filesystem read tools.
 
 ---
 
