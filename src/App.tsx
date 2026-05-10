@@ -31,6 +31,7 @@ import { createDelegateToCoderTool } from './agent/tools/DelegateToCoderTool';
 import { DeviceFs } from './DeviceFs';
 import { saveEditor } from './lib/saveEditor';
 import { dirname, join } from './lib/devicePath';
+import { findCycle } from './lib/findCycle';
 
 const models = createModels();
 
@@ -364,7 +365,27 @@ export function App() {
         return INLINE_APPROVAL;
       }}
       onConversationChange={(history, entries) => {
-        localStorage.setItem('cobweb:conversation', JSON.stringify({ history, entries }));
+        const snapshot = { history, entries };
+        let serialized: string;
+        try {
+          serialized = JSON.stringify(snapshot);
+        } catch (err) {
+          // Persistence is best-effort: skip this turn rather than crashing
+          // the inner ConversationErrorBoundary into a remount. Log enough to
+          // root-cause the offending field — see #167.
+          const hit = findCycle(snapshot);
+          console.error('[cobweb] Failed to persist conversation:', err);
+          if (hit) {
+            console.error(
+              `[cobweb] Cycle at "${hit.path}" (constructor: ${hit.constructor}). Snapshot:`,
+              snapshot,
+            );
+          } else {
+            console.error('[cobweb] No cycle detected by walker. Snapshot:', snapshot);
+          }
+          return;
+        }
+        localStorage.setItem('cobweb:conversation', serialized);
       }}
       initialHistory={savedConversation?.history as never}
       initialEntries={savedConversation?.entries as never}
