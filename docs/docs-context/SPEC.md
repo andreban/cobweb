@@ -2,7 +2,7 @@
 
 ## Overview
 
-The PRD identifies three primitives for phase 1: per-board persistent notes, generic URL fetching, and module-surface introspection. Each is a small additive tool registered on the existing `models.tools` registry. The board-notes tools are allowlisted to both `PLANNING_AGENT` and `CODING_AGENT` so the planner can recall and update notes without delegating; `fetch_url` and `list_installed_modules` stay coder-only.
+The PRD identifies three primitives for phase 1: per-board persistent notes, generic URL fetching, and module-surface introspection. Each is a small additive tool registered on the existing `models.tools` registry. The board-notes and `fetch_url` tools are allowlisted to both `PLANNING_AGENT` and `CODING_AGENT` so the planner can recall notes and read docs URLs the user pastes without round-tripping through the coder; `list_installed_modules` stays coder-only because it requires a connected device and only matters when actually writing imports.
 
 The framework provides every primitive needed:
 
@@ -163,7 +163,7 @@ Tests stub `fetch` on `globalThis`.
 
 **Modify:**
 - `src/agent/wireTools.ts` — register the new tool.
-- `src/agent/config.ts` — append `'fetch_url'` to `CODING_AGENT.tools`. Add a sentence to coder instructions: *"When the user provides a docs URL, when board notes record one, or when you need a known docs page (e.g. upstream MicroPython library RST at `https://raw.githubusercontent.com/micropython/micropython/master/docs/library/<module>.rst`), call `fetch_url`."*
+- `src/agent/config.ts` — append `'fetch_url'` to both `PLANNING_AGENT.tools` and `CODING_AGENT.tools`. Add a sentence to coder instructions: *"When the user provides a docs URL, when board notes record one, or when you need a known docs page (e.g. upstream MicroPython library RST at `https://raw.githubusercontent.com/micropython/micropython/master/docs/library/<module>.rst`), call `fetch_url`."*
 
 ---
 

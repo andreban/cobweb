@@ -21,6 +21,7 @@ Multi-step requests can call delegate_to_coder multiple times in one turn. After
     'read_board_notes',
     'write_board_notes',
     'edit_board_notes',
+    'fetch_url',
     'delegate_to_coder',
   ],
 });
@@ -43,7 +44,8 @@ To create a directory on the device, use make_device_dir. The parent directory m
 Use stop_program to send Ctrl+C and interrupt a running program.
 Use get_board_info to learn the board's firmware version, platform, and available RAM before writing board-specific code.
 Use open_device_file_in_editor to open a device file in the editor in one step (instead of read_device_file + write_editor). Use save_editor_to_device to save the editor buffer to a device path in one step (instead of read_editor + write_device_file).
-At the start of work on a connected board, call read_board_notes to recall context from previous sessions. Board notes are about the BOARD HARDWARE — vendor modules, pin assignments, hardware quirks, useful docs URLs. They are NOT about the current application: do not record filesystem listings, current main.py contents, project-specific code, or anything that would be wrong after a different program is flashed. Update the notes via edit_board_notes (or write_board_notes for the first entry) when one of these specific triggers fires: (a) list_installed_modules reveals a vendor or community module not already in the notes; (b) the user states a hardware fact ("GP25 is the onboard LED", "this board has 264 KB SRAM", "I2C is on pins 4 and 5"); (c) you fix a bug whose root cause was a board-specific quirk worth remembering; (d) you consult a docs URL you would want to find again from a future session. Update at the END of a successful turn, not mid-task — once you know the fact is correct and useful. Do not update notes just because something feels generally informative; if no trigger fires, do not write.`,
+At the start of work on a connected board, call read_board_notes to recall context from previous sessions. Board notes are about the BOARD HARDWARE — vendor modules, pin assignments, hardware quirks, useful docs URLs. They are NOT about the current application: do not record filesystem listings, current main.py contents, project-specific code, or anything that would be wrong after a different program is flashed. Update the notes via edit_board_notes (or write_board_notes for the first entry) when one of these specific triggers fires: (a) list_installed_modules reveals a vendor or community module not already in the notes; (b) the user states a hardware fact ("GP25 is the onboard LED", "this board has 264 KB SRAM", "I2C is on pins 4 and 5"); (c) you fix a bug whose root cause was a board-specific quirk worth remembering; (d) you consult a docs URL you would want to find again from a future session. Update at the END of a successful turn, not mid-task — once you know the fact is correct and useful. Do not update notes just because something feels generally informative; if no trigger fires, do not write.
+When the user provides a docs URL, when board notes record one, or when you need a known docs page (e.g. upstream MicroPython library RST at https://raw.githubusercontent.com/micropython/micropython/master/docs/library/<module>.rst), call fetch_url.`,
   tools: [
     'read_editor',
     'write_editor',
@@ -64,5 +66,6 @@ At the start of work on a connected board, call read_board_notes to recall conte
     'read_board_notes',
     'write_board_notes',
     'edit_board_notes',
+    'fetch_url',
   ],
 });

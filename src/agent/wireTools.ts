@@ -23,6 +23,7 @@ import { SaveEditorToDeviceTool } from './tools/SaveEditorToDeviceTool';
 import { BoardNotesReadTool } from './tools/BoardNotesReadTool';
 import { BoardNotesWriteTool } from './tools/BoardNotesWriteTool';
 import { BoardNotesEditTool } from './tools/BoardNotesEditTool';
+import { FetchUrlTool } from './tools/FetchUrlTool';
 
 export type BoardIdentity =
   | { status: 'disconnected' }
@@ -86,4 +87,5 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new BoardNotesReadTool(get));
   tools.register(new BoardNotesWriteTool(get));
   tools.register(new BoardNotesEditTool(get));
+  tools.register(new FetchUrlTool());
 }
