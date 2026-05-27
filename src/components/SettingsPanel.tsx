@@ -10,15 +10,12 @@ import { Button } from './ui/button';
 type ProviderId = 'google-genai';
 
 const GEMINI_MODELS = [
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
-  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite Preview' },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'gemini-pro-latest', label: 'Gemini Pro Latest' },
 ] as const;
 
-const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -37,11 +34,9 @@ interface SettingsFormProps {
 
 function SettingsForm({ config, onClose, onSave, onClear }: SettingsFormProps) {
   const [provider, setProvider] = useState<ProviderId>('google-genai');
-  const [apiKey, setApiKey] = useState(
-    config?.provider === 'google-genai' ? config.apiKey : '',
-  );
+  const [apiKey, setApiKey] = useState(config?.provider === 'google-genai' ? config.apiKey : '');
   const [model, setModel] = useState<string>(
-    config?.provider === 'google-genai' && config.model ? config.model : DEFAULT_GEMINI_MODEL,
+    config?.provider === 'google-genai' && config.model ? config.model : DEFAULT_GEMINI_MODEL
   );
 
   function handleSave(event: React.FormEvent) {
