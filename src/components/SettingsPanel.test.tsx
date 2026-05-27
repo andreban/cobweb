@@ -45,17 +45,17 @@ describe('SettingsPanel', () => {
     render(
       <SettingsPanel
         {...makeDefaults({
-          config: { provider: 'google-genai', apiKey: 'AIza', model: 'gemini-2.5-pro' },
+          config: { provider: 'google-genai', apiKey: 'AIza', model: 'gemini-3.5-flash' },
         })}
       />,
     );
-    expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('gemini-2.5-pro');
+    expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('gemini-3.5-flash');
   });
 
-  it('defaults the model to Gemini 3.1 Flash-Lite Preview when no config is set', () => {
+  it('defaults the model to Gemini 3.1 Flash-Lite when no config is set', () => {
     render(<SettingsPanel {...makeDefaults()} />);
     expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe(
-      'gemini-3.1-flash-lite-preview',
+      'gemini-3.1-flash-lite',
     );
   });
 
@@ -86,13 +86,13 @@ describe('SettingsPanel', () => {
     render(<SettingsPanel {...makeDefaults({ onSave, onClose })} />);
 
     await userEvent.type(screen.getByLabelText('API key'), '  AIza-new  ');
-    await userEvent.selectOptions(screen.getByLabelText('Model'), 'gemini-2.5-flash');
+    await userEvent.selectOptions(screen.getByLabelText('Model'), 'gemini-3.5-flash');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(onSave).toHaveBeenCalledWith({
       provider: 'google-genai',
       apiKey: 'AIza-new',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.5-flash',
     });
     expect(onClose).toHaveBeenCalledOnce();
   });
