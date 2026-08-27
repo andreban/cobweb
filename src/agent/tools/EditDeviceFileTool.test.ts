@@ -9,12 +9,16 @@ import { DeviceFs, DeviceFsError } from '../../DeviceFs';
 function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
+    getEditorOrigin: () => ({ kind: 'untitled' }),
     setEditorContent: () => {},
+    setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({ stdout: '', stderr: '' }),
     getReplHistory: () => [],
     onData: () => () => {},
     deviceFs: null,
+    sendInterrupt: () => {},
+    boardIdentity: { status: 'disconnected' },
     ...overrides,
   };
 }
@@ -107,6 +111,24 @@ describe('EditDeviceFileTool', () => {
     ).resolves.toBe('File updated.');
     expect(readBytes).toHaveBeenCalledWith('/main.py');
     expect(writeText).toHaveBeenCalledWith('/main.py', 'a = 1\nb = 42\nc = 3\n');
+  });
+
+  it('updates editor content if edited file is open in editor', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const readBytes = vi.fn().mockResolvedValue(utf8('a = 1\nb = 2\nc = 3\n'));
+    const setOriginAndContent = vi.fn();
+    const tool = new EditDeviceFileTool(() =>
+      makeBindings({
+        deviceFs: makeDeviceFs({ readBytes, writeText }),
+        getEditorOrigin: () => ({ kind: 'device', path: '/main.py' }),
+        setOriginAndContent,
+      }),
+    );
+    await tool.call({ path: '/main.py', old_string: 'b = 2', new_string: 'b = 42' });
+    expect(setOriginAndContent).toHaveBeenCalledWith(
+      { kind: 'device', path: '/main.py' },
+      'a = 1\nb = 42\nc = 3\n',
+    );
   });
 
   it('handles multi-line replacements', async () => {

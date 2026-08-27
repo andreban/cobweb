@@ -35,7 +35,7 @@ export class OpenDeviceFileInEditorTool implements Tool<OpenDeviceFileInEditorAr
   }
 
   async call(args: OpenDeviceFileInEditorArgs): Promise<string> {
-    const { deviceFs, setEditorContent } = this.getBindings();
+    const { deviceFs, setOriginAndContent } = this.getBindings();
     if (deviceFs === null) return 'Device is not connected.';
 
     let bytes: Uint8Array;
@@ -53,7 +53,7 @@ export class OpenDeviceFileInEditorTool implements Tool<OpenDeviceFileInEditorAr
       return 'Cannot open binary file in editor.';
     }
 
-    setEditorContent(text);
+    setOriginAndContent({ kind: 'device', path: args.path }, text);
     return `Editor opened ${args.path}.`;
   }
 }

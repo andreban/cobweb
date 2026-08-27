@@ -10,12 +10,14 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
+    setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({ stdout: '', stderr: '' }),
     getReplHistory: () => [],
     onData: () => () => {},
     deviceFs: null,
     sendInterrupt: () => {},
+    boardIdentity: { status: 'disconnected' },
     ...overrides,
   };
 }
@@ -51,16 +53,22 @@ describe('SaveEditorToDeviceTool', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
-  it('writes editor content to the given path', async () => {
+  it('writes editor content to the given path and updates editor origin and content', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
+    const setOriginAndContent = vi.fn();
     const tool = new SaveEditorToDeviceTool(() =>
       makeBindings({
         deviceFs: makeDeviceFs(writeText),
         getEditorContent: () => 'print("hi")\n',
+        setOriginAndContent,
       }),
     );
     await tool.call({ path: '/main.py' });
     expect(writeText).toHaveBeenCalledWith('/main.py', 'print("hi")\n');
+    expect(setOriginAndContent).toHaveBeenCalledWith(
+      { kind: 'device', path: '/main.py' },
+      'print("hi")\n',
+    );
   });
 
   it('returns success message on write', async () => {

@@ -9,6 +9,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
+    setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({stdout: '', stderr: ''}),
     getReplHistory: () => [],

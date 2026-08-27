@@ -10,12 +10,14 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
+    setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({ stdout: '', stderr: '' }),
     getReplHistory: () => [],
     onData: () => () => {},
     deviceFs: null,
     sendInterrupt: () => {},
+    boardIdentity: { status: 'disconnected' },
     ...overrides,
   };
 }
@@ -46,38 +48,38 @@ describe('OpenDeviceFileInEditorTool', () => {
     await expect(tool.call({ path: '/main.py' })).resolves.toBe('Device is not connected.');
   });
 
-  it('does not call setEditorContent when device is not connected', async () => {
-    const setEditorContent = vi.fn();
+  it('does not call setOriginAndContent when device is not connected', async () => {
+    const setOriginAndContent = vi.fn();
     const tool = new OpenDeviceFileInEditorTool(() =>
-      makeBindings({ deviceFs: null, setEditorContent }),
+      makeBindings({ deviceFs: null, setOriginAndContent }),
     );
     await tool.call({ path: '/main.py' });
-    expect(setEditorContent).not.toHaveBeenCalled();
+    expect(setOriginAndContent).not.toHaveBeenCalled();
   });
 
-  it('reads file, loads into editor, returns success message', async () => {
+  it('reads file, loads into editor with origin and snapshot, returns success message', async () => {
     const code = 'print("hello")\n';
     const readBytes = vi.fn().mockResolvedValue(encoder.encode(code));
-    const setEditorContent = vi.fn();
+    const setOriginAndContent = vi.fn();
     const tool = new OpenDeviceFileInEditorTool(() =>
-      makeBindings({ deviceFs: makeDeviceFs(readBytes), setEditorContent }),
+      makeBindings({ deviceFs: makeDeviceFs(readBytes), setOriginAndContent }),
     );
     const result = await tool.call({ path: '/main.py' });
     expect(readBytes).toHaveBeenCalledWith('/main.py');
-    expect(setEditorContent).toHaveBeenCalledWith(code);
+    expect(setOriginAndContent).toHaveBeenCalledWith({ kind: 'device', path: '/main.py' }, code);
     expect(result).toBe('Editor opened /main.py.');
   });
 
   it('returns binary error message for non-UTF-8 files', async () => {
     const binaryBytes = new Uint8Array([0xff, 0xfe, 0x00, 0x01]);
     const readBytes = vi.fn().mockResolvedValue(binaryBytes);
-    const setEditorContent = vi.fn();
+    const setOriginAndContent = vi.fn();
     const tool = new OpenDeviceFileInEditorTool(() =>
-      makeBindings({ deviceFs: makeDeviceFs(readBytes), setEditorContent }),
+      makeBindings({ deviceFs: makeDeviceFs(readBytes), setOriginAndContent }),
     );
     const result = await tool.call({ path: '/blob.bin' });
     expect(result).toBe('Cannot open binary file in editor.');
-    expect(setEditorContent).not.toHaveBeenCalled();
+    expect(setOriginAndContent).not.toHaveBeenCalled();
   });
 
   it('returns DeviceFsError message (e.g. ENOENT)', async () => {
@@ -100,14 +102,14 @@ describe('OpenDeviceFileInEditorTool', () => {
   it('reads bindings lazily via the getter', async () => {
     const code = 'x = 1';
     const readBytes = vi.fn().mockResolvedValue(encoder.encode(code));
-    const setEditorContent = vi.fn();
+    const setOriginAndContent = vi.fn();
     let bindings = makeBindings({ deviceFs: null });
     const tool = new OpenDeviceFileInEditorTool(() => bindings);
     await tool.call({ path: '/main.py' });
-    expect(setEditorContent).not.toHaveBeenCalled();
+    expect(setOriginAndContent).not.toHaveBeenCalled();
 
-    bindings = makeBindings({ deviceFs: makeDeviceFs(readBytes), setEditorContent });
+    bindings = makeBindings({ deviceFs: makeDeviceFs(readBytes), setOriginAndContent });
     await tool.call({ path: '/main.py' });
-    expect(setEditorContent).toHaveBeenCalledWith(code);
+    expect(setOriginAndContent).toHaveBeenCalledWith({ kind: 'device', path: '/main.py' }, code);
   });
 });

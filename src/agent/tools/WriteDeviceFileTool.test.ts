@@ -9,12 +9,16 @@ import { DeviceFs, DeviceFsError } from '../../DeviceFs';
 function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
+    getEditorOrigin: () => ({ kind: 'untitled' }),
     setEditorContent: () => {},
+    setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({ stdout: '', stderr: '' }),
     getReplHistory: () => [],
     onData: () => () => {},
     deviceFs: null,
+    sendInterrupt: () => {},
+    boardIdentity: { status: 'disconnected' },
     ...overrides,
   };
 }
@@ -55,6 +59,23 @@ describe('WriteDeviceFileTool', () => {
     );
     await tool.call({ path: '/lib/foo.py', content: 'print("hi")\n' });
     expect(writeText).toHaveBeenCalledWith('/lib/foo.py', 'print("hi")\n');
+  });
+
+  it('updates editor content when written file is currently open in editor', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const setOriginAndContent = vi.fn();
+    const tool = new WriteDeviceFileTool(() =>
+      makeBindings({
+        deviceFs: makeDeviceFs(writeText),
+        getEditorOrigin: () => ({ kind: 'device', path: '/lib/foo.py' }),
+        setOriginAndContent,
+      }),
+    );
+    await tool.call({ path: '/lib/foo.py', content: 'print("hi")\n' });
+    expect(setOriginAndContent).toHaveBeenCalledWith(
+      { kind: 'device', path: '/lib/foo.py' },
+      'print("hi")\n',
+    );
   });
 
   it('returns "ok" on success', async () => {
