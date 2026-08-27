@@ -35,11 +35,12 @@ export class SaveEditorToDeviceTool implements Tool<SaveEditorToDeviceArgs, stri
   }
 
   async call(args: SaveEditorToDeviceArgs): Promise<string> {
-    const { deviceFs, getEditorContent } = this.getBindings();
+    const { deviceFs, getEditorContent, setOriginAndContent } = this.getBindings();
     if (deviceFs === null) return 'Device is not connected.';
     const content = getEditorContent();
     try {
       await deviceFs.writeText(args.path, content);
+      setOriginAndContent({ kind: 'device', path: args.path }, content);
     } catch (err) {
       if (err instanceof DeviceFsError) return err.message;
       throw err;

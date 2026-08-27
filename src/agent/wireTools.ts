@@ -4,6 +4,7 @@
 import type { ToolRegistry } from '@mast-ai/core';
 import type { RunResult } from '../ReplInterface';
 import type { DeviceFs } from '../DeviceFs';
+import type { EditorOrigin } from '../hooks/useEditor';
 import { ReadEditorTool } from './tools/ReadEditorTool';
 import { WriteEditorTool } from './tools/WriteEditorTool';
 import { EditEditorTool } from './tools/EditEditorTool';
@@ -33,6 +34,7 @@ export type BoardIdentity =
 export interface ToolBindings {
   getEditorContent(): string;
   setEditorContent(code: string): void;
+  setOriginAndContent(origin: EditorOrigin, content: string): void;
   /**
    * Targeted partial edit. Used by `edit_editor` so the user's scroll
    * position is preserved after the edit applies.

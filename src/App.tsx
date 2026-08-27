@@ -271,6 +271,7 @@ export function App() {
   wireTools(models.tools, {
     getEditorContent: getContent,
     setEditorContent: setContent,
+    setOriginAndContent,
     replaceEditorRange: replaceRange,
     runCode,
     getReplHistory: () => replHistory,
