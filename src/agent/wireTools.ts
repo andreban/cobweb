@@ -33,6 +33,7 @@ export type BoardIdentity =
 
 export interface ToolBindings {
   getEditorContent(): string;
+  getEditorOrigin(): EditorOrigin;
   setEditorContent(code: string): void;
   setOriginAndContent(origin: EditorOrigin, content: string): void;
   /**

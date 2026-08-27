@@ -49,7 +49,7 @@ export class EditDeviceFileTool implements Tool<EditDeviceFileArgs, string> {
   }
 
   async call(args: EditDeviceFileArgs): Promise<string> {
-    const { deviceFs } = this.getBindings();
+    const { deviceFs, getEditorOrigin, setOriginAndContent } = this.getBindings();
     if (deviceFs === null) return 'Device is not connected.';
 
     const bytes = await deviceFs.readBytes(args.path);
@@ -72,6 +72,10 @@ export class EditDeviceFileTool implements Tool<EditDeviceFileArgs, string> {
       args.new_string +
       source.slice(result.index + args.old_string.length);
     await deviceFs.writeText(args.path, replaced);
+    const origin = getEditorOrigin();
+    if (origin.kind === 'device' && origin.path === args.path) {
+      setOriginAndContent(origin, replaced);
+    }
     return 'File updated.';
   }
 }

@@ -39,9 +39,13 @@ export class WriteDeviceFileTool implements Tool<WriteDeviceFileArgs, string> {
   }
 
   async call(args: WriteDeviceFileArgs): Promise<string> {
-    const { deviceFs } = this.getBindings();
+    const { deviceFs, getEditorOrigin, setOriginAndContent } = this.getBindings();
     if (deviceFs === null) return 'Device is not connected.';
     await deviceFs.writeText(args.path, args.content);
+    const origin = getEditorOrigin();
+    if (origin.kind === 'device' && origin.path === args.path) {
+      setOriginAndContent(origin, args.content);
+    }
     return 'ok';
   }
 }

@@ -270,6 +270,7 @@ export function App() {
   // call registers, every subsequent call only refreshes the bindings.
   wireTools(models.tools, {
     getEditorContent: getContent,
+    getEditorOrigin: () => origin,
     setEditorContent: setContent,
     setOriginAndContent,
     replaceEditorRange: replaceRange,
