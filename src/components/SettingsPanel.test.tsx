@@ -52,10 +52,10 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe('gemini-3.5-flash');
   });
 
-  it('defaults the model to Gemini 3.1 Flash-Lite when no config is set', () => {
+  it('defaults the model to Gemini 3.6 Flash when no config is set', () => {
     render(<SettingsPanel {...makeDefaults()} />);
     expect(screen.getByLabelText<HTMLSelectElement>('Model').value).toBe(
-      'gemini-3.1-flash-lite',
+      'gemini-3.6-flash',
     );
   });
 
