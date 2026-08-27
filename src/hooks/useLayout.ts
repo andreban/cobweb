@@ -18,7 +18,7 @@ export interface PersistedLayout {
 const DEFAULTS: PersistedLayout = {
   leftOpen: true,
   leftSize: 20,
-  rightOpen: true,
+  rightOpen: false,
   rightSize: 35,
   replOpen: true,
   replSize: 40,

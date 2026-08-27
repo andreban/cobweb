@@ -9,6 +9,7 @@ function makeBindings(overrides: Partial<ToolBindings> = {}): ToolBindings {
   return {
     getEditorContent: () => '',
     setEditorContent: () => {},
+    getEditorOrigin: () => ({ kind: 'file', path: 'untitled.py' }),
     setOriginAndContent: () => {},
     replaceEditorRange: () => {},
     runCode: async () => ({stdout: '', stderr: ''}),
@@ -40,6 +41,7 @@ describe('wireTools', () => {
       'read_device_file',
       'read_editor',
       'read_repl_history',
+      'run_device_file',
       'run_editor',
       'run_snippet',
       'save_editor_to_device',
@@ -54,7 +56,7 @@ describe('wireTools', () => {
     const tools = new ToolRegistry();
     wireTools(tools, makeBindings());
     expect(() => wireTools(tools, makeBindings())).not.toThrow();
-    expect(tools.getTools()).toHaveLength(20);
+    expect(tools.getTools()).toHaveLength(21);
   });
 
   it('updates bindings on subsequent calls so tools see the latest callbacks', async () => {

@@ -14,6 +14,7 @@ import { DeviceFileNavigator } from './components/DeviceFileNavigator';
 import { EditorBanner } from './components/EditorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AgentPanel } from './components/AgentPanel';
+import { WebMcpBridge } from './components/WebMcpBridge';
 import { makeCobwebApproval } from './components/makeCobwebApproval';
 import { useReplConnection } from './hooks/useReplConnection';
 import { useEditor, type EditorOrigin } from './hooks/useEditor';
@@ -552,6 +553,14 @@ export function App() {
         config={config}
         onSave={saveConfig}
         onClear={clearConfig}
+      />
+      <WebMcpBridge
+        toolRegistry={models.tools}
+        getEditorContent={getContent}
+        revealEditorRange={revealRange}
+        readDeviceFile={readDeviceFileForApproval}
+        getBoardNotes={getBoardNotes}
+        focusDeviceFile={handleFocusDeviceFile}
       />
     </AgentProvider>
   );

@@ -16,7 +16,7 @@ describe('useLayout', () => {
     const { result } = renderHook(() => useLayout());
     expect(result.current.leftOpen).toBe(true);
     expect(result.current.leftSize).toBe(20);
-    expect(result.current.rightOpen).toBe(true);
+    expect(result.current.rightOpen).toBe(false);
     expect(result.current.rightSize).toBe(35);
     expect(result.current.replOpen).toBe(true);
     expect(result.current.replSize).toBe(40);
@@ -29,7 +29,7 @@ describe('useLayout', () => {
       JSON.stringify({
         leftOpen: false,
         leftSize: 12,
-        rightOpen: false,
+        rightOpen: true,
         rightSize: 27,
         replOpen: false,
         replSize: 33,
@@ -39,7 +39,7 @@ describe('useLayout', () => {
     const { result } = renderHook(() => useLayout());
     expect(result.current.leftOpen).toBe(false);
     expect(result.current.leftSize).toBe(12);
-    expect(result.current.rightOpen).toBe(false);
+    expect(result.current.rightOpen).toBe(true);
     expect(result.current.rightSize).toBe(27);
     expect(result.current.replOpen).toBe(false);
     expect(result.current.replSize).toBe(33);
@@ -51,12 +51,14 @@ describe('useLayout', () => {
     const { result } = renderHook(() => useLayout());
     expect(result.current.leftSize).toBe(20);
     expect(result.current.leftOpen).toBe(true);
+    expect(result.current.rightOpen).toBe(false);
   });
 
   it('falls back to defaults when stored value is not an object', () => {
     localStorage.setItem(KEY, '"a string"');
     const { result } = renderHook(() => useLayout());
     expect(result.current.leftSize).toBe(20);
+    expect(result.current.rightOpen).toBe(false);
   });
 
   it('falls back to defaults for individual missing or wrongly-typed keys', () => {
@@ -68,6 +70,7 @@ describe('useLayout', () => {
     expect(result.current.leftSize).toBe(20);
     expect(result.current.rightSize).toBe(25);
     expect(result.current.replOpen).toBe(true);
+    expect(result.current.rightOpen).toBe(false);
   });
 
   it('clamps out-of-range numbers on read', () => {
@@ -122,14 +125,14 @@ describe('useLayout', () => {
     const first = renderHook(() => useLayout());
     act(() => {
       first.result.current.setLeftSize(15);
-      first.result.current.setRightOpen(false);
+      first.result.current.setRightOpen(true);
       first.result.current.setLeftSplitSize(70);
     });
     first.unmount();
 
     const second = renderHook(() => useLayout());
     expect(second.result.current.leftSize).toBe(15);
-    expect(second.result.current.rightOpen).toBe(false);
+    expect(second.result.current.rightOpen).toBe(true);
     expect(second.result.current.leftSplitSize).toBe(70);
   });
 });

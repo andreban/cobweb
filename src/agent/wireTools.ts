@@ -10,6 +10,7 @@ import { WriteEditorTool } from './tools/WriteEditorTool';
 import { EditEditorTool } from './tools/EditEditorTool';
 import { EditDeviceFileTool } from './tools/EditDeviceFileTool';
 import { RunEditorTool } from './tools/RunEditorTool';
+import { RunDeviceFileTool } from './tools/RunDeviceFileTool';
 import { RunSnippetTool } from './tools/RunSnippetTool';
 import { ReadReplHistoryTool } from './tools/ReadReplHistoryTool';
 import { ListDeviceFilesTool } from './tools/ListDeviceFilesTool';
@@ -75,6 +76,7 @@ export function wireTools(tools: ToolRegistry, bindings: ToolBindings): void {
   tools.register(new WriteEditorTool(get));
   tools.register(new EditEditorTool(get));
   tools.register(new RunEditorTool(get));
+  tools.register(new RunDeviceFileTool(get));
   tools.register(new RunSnippetTool(get));
   tools.register(new ReadReplHistoryTool(get));
   tools.register(new ListDeviceFilesTool(get));

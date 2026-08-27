@@ -16,8 +16,8 @@ export class OpenDeviceFileInEditorTool implements Tool<OpenDeviceFileInEditorAr
     return {
       name: 'open_device_file_in_editor',
       description:
-        'Reads a file from the device and loads it into the editor in one step. ' +
-        'Use this instead of read_device_file + write_editor.',
+        'Reads a file from the device and loads it into the editor so the human user can view or edit it interactively. ' +
+        'DO NOT use this tool if your goal is to edit or inspect a device file yourself — use edit_device_file or read_device_file directly instead.',
       parameters: {
         type: 'object',
         properties: {
