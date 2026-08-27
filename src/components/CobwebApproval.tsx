@@ -20,6 +20,7 @@ interface CobwebApprovalProps extends ApprovalSlotProps {
   revealEditorRange: (from: number, to: number) => void;
   readDeviceFile: (path: string) => Promise<string | null>;
   getBoardNotes: () => string | null;
+  focusDeviceFile?: (path: string, from: number, to: number) => void | Promise<void>;
 }
 
 export function CobwebApproval({
@@ -29,6 +30,7 @@ export function CobwebApproval({
   revealEditorRange,
   readDeviceFile,
   getBoardNotes,
+  focusDeviceFile,
 }: CobwebApprovalProps): ReactNode {
   switch (entry.name) {
     case 'edit_editor':
@@ -48,6 +50,7 @@ export function CobwebApproval({
           entry={entry}
           approval={approval}
           readDeviceFile={readDeviceFile}
+          focusDeviceFile={focusDeviceFile}
         />
       );
     case 'edit_board_notes': {
@@ -181,12 +184,14 @@ export function CobwebApproval({
 
 interface DeviceEditApprovalLoaderProps extends ApprovalSlotProps {
   readDeviceFile: (path: string) => Promise<string | null>;
+  focusDeviceFile?: (path: string, from: number, to: number) => void | Promise<void>;
 }
 
 function DeviceEditApprovalLoader({
   entry,
   approval,
   readDeviceFile,
+  focusDeviceFile,
 }: DeviceEditApprovalLoaderProps): ReactNode {
   const args = entry.args as { path?: unknown } | undefined;
   const path = typeof args?.path === 'string' ? args.path : '';
@@ -265,6 +270,13 @@ function DeviceEditApprovalLoader({
       surface="file"
       headerLabel={headerLabel}
       source={state.source}
+      onFocus={
+        focusDeviceFile
+          ? (from, to) => {
+              void focusDeviceFile(path, from, to);
+            }
+          : undefined
+      }
     />
   );
 }
@@ -366,6 +378,7 @@ interface EditApprovalCardProps extends ApprovalSlotProps {
   surface: 'editor' | 'file' | 'notes';
   headerLabel: ReactNode;
   revealRange?: (from: number, to: number) => void;
+  onFocus?: (from: number, to: number) => void;
 }
 
 function EditApprovalCard({
@@ -375,6 +388,7 @@ function EditApprovalCard({
   surface,
   headerLabel,
   revealRange,
+  onFocus,
 }: EditApprovalCardProps): ReactNode {
   const args = entry.args as { old_string?: unknown; new_string?: unknown } | undefined;
   const oldString = typeof args?.old_string === 'string' ? args.old_string : '';
@@ -414,16 +428,20 @@ function EditApprovalCard({
       <div className="cobweb-approval-header">
         <span className="cobweb-approval-title">{headerLabel}</span>
         <div className="cobweb-approval-header-actions">
-          {find.kind === 'unique' && revealRange && (
+          {find.kind === 'unique' && (revealRange || onFocus) && (
             <button
               type="button"
               className="cobweb-reveal-button"
-              onClick={() =>
-                revealRange(find.index, find.index + oldString.length)
-              }
-              title="Scroll editor to this location"
+              onClick={() => {
+                if (onFocus) {
+                  onFocus(find.index, find.index + oldString.length);
+                } else if (revealRange) {
+                  revealRange(find.index, find.index + oldString.length);
+                }
+              }}
+              title={onFocus ? 'Open in editor and highlight changes' : 'Scroll editor to this location'}
             >
-              Reveal
+              {onFocus ? 'Focus' : 'Reveal'}
             </button>
           )}
           <span className="cobweb-approval-status">requires approval</span>
@@ -747,7 +765,7 @@ function DiffLine({ kind, lineNumber, children }: DiffLineProps): ReactNode {
       <span className="cobweb-diff-content">
         {children}
         {/* Empty-line preserve: zero-width space so the row keeps its height. */}
-        {'​'}
+        {'\u200b'}
       </span>
     </div>
   );

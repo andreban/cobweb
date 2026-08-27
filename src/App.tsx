@@ -219,6 +219,18 @@ export function App() {
     [deviceReadBytes, isModified, setOriginAndContent],
   );
 
+  const handleFocusDeviceFile = useCallback(
+    async (path: string, from: number, to: number) => {
+      if (origin.kind === 'device' && origin.path === path) {
+        revealRange(from, to);
+        return;
+      }
+      await handleOpenDeviceFile(path);
+      revealRange(from, to);
+    },
+    [origin, revealRange, handleOpenDeviceFile],
+  );
+
   const dismissBanner = useCallback(() => setBanner(null), []);
 
   const acceptPendingSwitch = useCallback(() => {
@@ -322,8 +334,9 @@ export function App() {
         revealRange,
         readDeviceFileForApproval,
         getBoardNotes,
+        handleFocusDeviceFile,
       ),
-    [getContent, revealRange, readDeviceFileForApproval, getBoardNotes],
+    [getContent, revealRange, readDeviceFileForApproval, getBoardNotes, handleFocusDeviceFile],
   );
 
   const savedConversation = useMemo(
