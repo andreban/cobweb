@@ -169,6 +169,40 @@ export function CobwebApproval({
         />
       );
     }
+    case 'run_editor': {
+      return (
+        <RunApprovalCard
+          entry={entry}
+          approval={approval}
+          header="Run editor code on microcontroller"
+          content={getEditorContent()}
+        />
+      );
+    }
+    case 'run_device_file': {
+      const rdfArgs = entry.args as { path?: unknown } | undefined;
+      const rdfPath = typeof rdfArgs?.path === 'string' ? rdfArgs.path : '';
+      return (
+        <RunDeviceFileApprovalLoader
+          entry={entry}
+          approval={approval}
+          path={rdfPath}
+          readDeviceFile={readDeviceFile}
+        />
+      );
+    }
+    case 'run_snippet': {
+      const rsArgs = entry.args as { code?: unknown } | undefined;
+      const rsCode = typeof rsArgs?.code === 'string' ? rsArgs.code : '';
+      return (
+        <RunApprovalCard
+          entry={entry}
+          approval={approval}
+          header="Execute code snippet on microcontroller"
+          content={rsCode}
+        />
+      );
+    }
     default:
       return (
         <InlineApproval
@@ -371,6 +405,75 @@ function OpenDeviceFileApprovalLoader({
   );
 }
 
+// ----- RunDeviceFileApprovalLoader ------------------------------------------
+
+interface RunDeviceFileApprovalLoaderProps extends ApprovalSlotProps {
+  path: string;
+  readDeviceFile: (path: string) => Promise<string | null>;
+}
+
+function RunDeviceFileApprovalLoader({
+  entry,
+  approval,
+  path,
+  readDeviceFile,
+}: RunDeviceFileApprovalLoaderProps): ReactNode {
+  type LoadState =
+    | { kind: 'loading' }
+    | { kind: 'loaded'; content: string }
+    | { kind: 'failed' };
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    readDeviceFile(path).then((content) => {
+      if (cancelled) return;
+      if (content === null) {
+        setState({ kind: 'failed' });
+      } else {
+        setState({ kind: 'loaded', content });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, readDeviceFile]);
+
+  const header = (
+    <>
+      Run <code>{path}</code> on microcontroller
+    </>
+  );
+
+  if (state.kind === 'loading') {
+    return (
+      <div className="cobweb-approval-card" data-tool-name={entry.name}>
+        <div className="cobweb-approval-header">
+          <span className="cobweb-approval-title">{header}</span>
+          <span className="cobweb-approval-status">requires approval</span>
+        </div>
+        <div className="cobweb-approval-notice">
+          <p>Loading file preview…</p>
+        </div>
+        <ApprovalActions
+          approveDisabled
+          onApprove={approval.approve}
+          onReject={approval.reject}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <RunApprovalCard
+      entry={entry}
+      approval={approval}
+      header={header}
+      content={state.kind === 'loaded' ? state.content : '(file content preview unavailable)'}
+    />
+  );
+}
+
 // ----- EditApprovalCard ------------------------------------------------------
 
 interface EditApprovalCardProps extends ApprovalSlotProps {
@@ -554,6 +657,26 @@ function WriteApprovalCard({ entry, approval, header, content }: WriteApprovalCa
   );
 }
 
+// ----- RunApprovalCard ------------------------------------------------------
+
+interface RunApprovalCardProps extends ApprovalSlotProps {
+  header: ReactNode;
+  content: string;
+}
+
+function RunApprovalCard({ entry, approval, header, content }: RunApprovalCardProps): ReactNode {
+  return (
+    <div className="cobweb-approval-card" data-tool-name={entry.name}>
+      <div className="cobweb-approval-header">
+        <span className="cobweb-approval-title">{header}</span>
+        <span className="cobweb-approval-status">requires approval</span>
+      </div>
+      <pre className="cobweb-approval-preview">{content || '(empty)'}</pre>
+      <ApprovalActions onApprove={approval.approve} onReject={approval.reject} />
+    </div>
+  );
+}
+
 // ----- ConfirmApprovalCard --------------------------------------------------
 
 interface ConfirmApprovalCardProps extends ApprovalSlotProps {
@@ -579,211 +702,152 @@ function ConfirmApprovalCard({ entry, approval, header, destructive = false }: C
 
 // ----- Diff rendering --------------------------------------------------------
 
-interface DiffBlockProps {
+function DiffBlock({
+  source,
+  index,
+  oldString,
+  newString,
+}: {
   source: string;
   index: number;
   oldString: string;
   newString: string;
-}
-
-function DiffBlock({ source, index, oldString, newString }: DiffBlockProps): ReactNode {
-  const hunk = useMemo(
-    () => expandToContextLines(source, index, oldString, newString),
+}) {
+  const expanded = useMemo(
+    () => expandToContextLines(source, index, oldString, newString, 3),
     [source, index, oldString, newString],
   );
+
   const wordDiff = useMemo(
-    () => diffWords(hunk.before.join('\n'), hunk.after.join('\n')),
-    [hunk.before, hunk.after],
+    () => diffWords(oldString, newString),
+    [oldString, newString],
   );
 
-  const beforeRows = splitByNewline(renderHalf(wordDiff, 'removed'));
-  const afterRows = splitByNewline(renderHalf(wordDiff, 'added'));
-
-  // Line numbers are 1-based and reference the *source* buffer.
-  const ctxBeforeStart = hunk.firstLine;
-  const removedStart = ctxBeforeStart + hunk.contextBefore.length;
-  const ctxAfterStart = removedStart + hunk.before.length;
-
   return (
-    <pre className="cobweb-diff">
-      {hunk.contextBefore.map((line, i) => (
-        <DiffLine key={`ctx-before-${i}`} kind="context" lineNumber={ctxBeforeStart + i}>
-          {line}
-        </DiffLine>
+    <div className="cobweb-diff-container">
+      {expanded.contextBefore.length < index && <div className="cobweb-diff-ellipsis">…</div>}
+      {expanded.contextBefore.map((line, i) => (
+        <div key={`pre-${i}`} className="cobweb-diff-line cobweb-diff-line-ctx">
+          <span className="cobweb-diff-line-number">
+            {expanded.firstLine + i}
+          </span>
+          <span className="cobweb-diff-line-content">{line}</span>
+        </div>
       ))}
-      {beforeRows.map((parts, i) => (
-        <DiffLine key={`removed-${i}`} kind="removed" lineNumber={removedStart + i}>
-          {parts}
-        </DiffLine>
+      <div className="cobweb-diff-line cobweb-diff-line-del">
+        <span className="cobweb-diff-line-number">-</span>
+        <span className="cobweb-diff-line-content">
+          {wordDiff.map((part, i) => {
+            if (part.added) return null;
+            if (part.removed) {
+              return (
+                <mark key={i} className="cobweb-diff-word-del">
+                  {part.value}
+                </mark>
+              );
+            }
+            return part.value;
+          })}
+        </span>
+      </div>
+      <div className="cobweb-diff-line cobweb-diff-line-add">
+        <span className="cobweb-diff-line-number">+</span>
+        <span className="cobweb-diff-line-content">
+          {wordDiff.map((part, i) => {
+            if (part.removed) return null;
+            if (part.added) {
+              return (
+                <mark key={i} className="cobweb-diff-word-add">
+                  {part.value}
+                </mark>
+              );
+            }
+            return part.value;
+          })}
+        </span>
+      </div>
+      {expanded.contextAfter.map((line, i) => (
+        <div key={`post-${i}`} className="cobweb-diff-line cobweb-diff-line-ctx">
+          <span className="cobweb-diff-line-number">
+            {expanded.firstLine +
+              expanded.contextBefore.length +
+              expanded.before.length +
+              i}
+          </span>
+          <span className="cobweb-diff-line-content">{line}</span>
+        </div>
       ))}
-      {/* Replacement lines have no source line numbers — leave the gutter
-          blank so the column stays a stable reference to the current buffer. */}
-      {afterRows.map((parts, i) => (
-        <DiffLine key={`added-${i}`} kind="added" lineNumber={null}>
-          {parts}
-        </DiffLine>
-      ))}
-      {hunk.contextAfter.map((line, i) => (
-        <DiffLine key={`ctx-after-${i}`} kind="context" lineNumber={ctxAfterStart + i}>
-          {line}
-        </DiffLine>
-      ))}
-    </pre>
-  );
-}
-
-// ----- UnifiedDiffBlock ------------------------------------------------------
-
-interface UnifiedDiffBlockProps {
-  current: string;
-  proposed: string;
-}
-
-/**
- * Whole-content diff for tools that replace an entire blob (e.g.
- * `write_board_notes`). Uses `diffLines` so the user sees what's changing
- * without having to read the full new content end-to-end.
- */
-function UnifiedDiffBlock({ current, proposed }: UnifiedDiffBlockProps): ReactNode {
-  const changes = useMemo(() => diffLines(current, proposed), [current, proposed]);
-
-  // Track the running line numbers in the *current* (left) and *proposed*
-  // (right) versions so each row can show its source-side line number.
-  // Lines added by the change have no left-side number; removed lines have
-  // no right-side number — we render the left number for removed/context
-  // and leave it blank for added rows, matching `DiffBlock`.
-  let leftLine = 1;
-  const rows: ReactNode[] = [];
-  let key = 0;
-  for (const change of changes) {
-    const lines = change.value.split('\n');
-    // `diffLines` chunks end with the trailing newline included, so the
-    // split yields a final empty string we should drop to avoid a phantom
-    // blank row per chunk.
-    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-    for (const line of lines) {
-      if (change.added) {
-        rows.push(
-          <DiffLine key={`u-${key++}`} kind="added" lineNumber={null}>
-            {line}
-          </DiffLine>,
-        );
-      } else if (change.removed) {
-        rows.push(
-          <DiffLine key={`u-${key++}`} kind="removed" lineNumber={leftLine++}>
-            {line}
-          </DiffLine>,
-        );
-      } else {
-        rows.push(
-          <DiffLine key={`u-${key++}`} kind="context" lineNumber={leftLine++}>
-            {line}
-          </DiffLine>,
-        );
-      }
-    }
-  }
-
-  return <pre className="cobweb-diff">{rows}</pre>;
-}
-
-function renderHalf(changes: ChangeObject<string>[], side: 'removed' | 'added'): ReactNode[] {
-  // Build inline nodes that, when joined and split on `\n`, produce one
-  // visual line per source/replacement line.
-  const out: ReactNode[] = [];
-  changes.forEach((change, i) => {
-    if (change.added) {
-      if (side === 'added') {
-        out.push(
-          <span key={i} className="cobweb-diff-added-word">
-            {change.value}
-          </span>,
-        );
-      }
-      return;
-    }
-    if (change.removed) {
-      if (side === 'removed') {
-        out.push(
-          <span key={i} className="cobweb-diff-removed-word">
-            {change.value}
-          </span>,
-        );
-      }
-      return;
-    }
-    out.push(<span key={i}>{change.value}</span>);
-  });
-  return out;
-}
-
-function splitByNewline(nodes: ReactNode[]): ReactNode[][] {
-  // Walk every span; split its text content on '\n' and emit a fresh row each
-  // time we cross a newline. Highlighted spans are split into per-line pieces
-  // so the row layout stays one DOM line per visual line.
-  const rows: ReactNode[][] = [[]];
-  let key = 0;
-  for (const node of nodes) {
-    if (typeof node === 'object' && node !== null && 'props' in node) {
-      const props = (node as { props: { className?: string; children?: unknown } }).props;
-      const text = String(props.children ?? '');
-      const className = props.className;
-      const pieces = text.split('\n');
-      pieces.forEach((piece, i) => {
-        if (piece.length > 0) {
-          if (className) {
-            rows[rows.length - 1].push(
-              <span key={`s-${key++}`} className={className}>
-                {piece}
-              </span>,
-            );
-          } else {
-            rows[rows.length - 1].push(piece);
-          }
-        }
-        if (i < pieces.length - 1) rows.push([]);
-      });
-    } else {
-      rows[rows.length - 1].push(node);
-    }
-  }
-  return rows;
-}
-
-interface DiffLineProps {
-  kind: 'context' | 'removed' | 'added';
-  lineNumber: number | null;
-  children: ReactNode;
-}
-
-function DiffLine({ kind, lineNumber, children }: DiffLineProps): ReactNode {
-  const sigil = kind === 'removed' ? '-' : kind === 'added' ? '+' : ' ';
-  return (
-    <div className={`cobweb-diff-line cobweb-diff-line-${kind}`}>
-      <span className="cobweb-diff-gutter">{lineNumber ?? ''}</span>
-      <span className="cobweb-diff-sigil">{sigil}</span>
-      <span className="cobweb-diff-content">
-        {children}
-        {/* Empty-line preserve: zero-width space so the row keeps its height. */}
-        {'\u200b'}
-      </span>
+      {expanded.contextAfter.length > 0 && <div className="cobweb-diff-ellipsis">…</div>}
     </div>
   );
 }
 
-// ----- Failure notice + actions ---------------------------------------------
+function UnifiedDiffBlock({ current, proposed }: { current: string; proposed: string }) {
+  const lineDiff = useMemo(() => diffLines(current, proposed), [current, proposed]);
 
-interface NoLongerAppliesNoticeProps {
-  message: string;
-  respondMessage: string;
-  onRespondWith: (s: string) => void;
+  return (
+    <div className="cobweb-diff-container">
+      {lineDiff.map((part: ChangeObject, i: number) => {
+        const className = part.added
+          ? 'cobweb-diff-line cobweb-diff-line-add'
+          : part.removed
+            ? 'cobweb-diff-line cobweb-diff-line-del'
+            : 'cobweb-diff-line cobweb-diff-line-ctx';
+        const prefix = part.added ? '+' : part.removed ? '-' : ' ';
+        return (
+          <div key={i} className={className}>
+            <span className="cobweb-diff-line-number">{prefix}</span>
+            <span className="cobweb-diff-line-content">{part.value}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ApprovalActions({
+  approveDisabled = false,
+  destructiveApprove = false,
+  onApprove,
+  onReject,
+}: {
+  approveDisabled?: boolean;
+  destructiveApprove?: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="cobweb-approval-actions">
+      <button
+        type="button"
+        className={`cobweb-approval-button ${
+          destructiveApprove ? 'cobweb-approval-button-destructive' : 'cobweb-approval-button-primary'
+        }`}
+        disabled={approveDisabled}
+        onClick={onApprove}
+      >
+        Approve
+      </button>
+      <button
+        type="button"
+        className="cobweb-approval-button cobweb-approval-button-secondary"
+        onClick={onReject}
+      >
+        Reject
+      </button>
+    </div>
+  );
 }
 
 function NoLongerAppliesNotice({
   message,
   respondMessage,
   onRespondWith,
-}: NoLongerAppliesNoticeProps): ReactNode {
+}: {
+  message: string;
+  respondMessage: string;
+  onRespondWith: (msg: string) => void;
+}) {
   return (
     <div className="cobweb-approval-notice">
       <p>{message}</p>
@@ -792,44 +856,7 @@ function NoLongerAppliesNotice({
         className="cobweb-approval-button cobweb-approval-button-secondary"
         onClick={() => onRespondWith(respondMessage)}
       >
-        Tell the agent
-      </button>
-    </div>
-  );
-}
-
-interface ApprovalActionsProps {
-  approveDisabled?: boolean;
-  destructiveApprove?: boolean;
-  onApprove: () => void;
-  onReject: () => void;
-}
-
-function ApprovalActions({
-  approveDisabled = false,
-  destructiveApprove = false,
-  onApprove,
-  onReject,
-}: ApprovalActionsProps): ReactNode {
-  const approveClass = destructiveApprove
-    ? 'cobweb-approval-button cobweb-approval-button-approve-destructive'
-    : 'cobweb-approval-button cobweb-approval-button-approve';
-  return (
-    <div className="cobweb-approval-actions">
-      <button
-        type="button"
-        className={approveClass}
-        onClick={onApprove}
-        disabled={approveDisabled}
-      >
-        Approve
-      </button>
-      <button
-        type="button"
-        className="cobweb-approval-button cobweb-approval-button-reject"
-        onClick={onReject}
-      >
-        Reject
+        Send notice to agent
       </button>
     </div>
   );
